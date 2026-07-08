@@ -31,6 +31,8 @@ const missionLog = require('./missionLog');
 const { GroqBrain, loadGroqKeys } = require('./groqBrain');
 const elevenlabs = require('./elevenlabs');
 const outcome = require('./outcome');
+const { parseCreateCommand, createFile } = require('./fileCreation');
+const { parseProductivityCommand, resolveProductivity } = require('./productivity');
 const {
   parseSpotifyCommand,
   runSpotifyCommand,
@@ -103,6 +105,32 @@ async function brainReply(text, context) {
   return "I can't answer that yet — add a Groq API key to give me a brain.";
 }
 
+/** Create a file from a parsed command: the brain writes the body, we save it. */
+async function runCreateFile(create) {
+  const topic = create.topic || 'Untitled';
+  const title = topic.replace(/^\w/, (c) => c.toUpperCase());
+  let body = topic;
+  if (create.kind !== 'note' && brain && brain.isConfigured()) {
+    try {
+      body = await brain.reply(
+        `Write the full text content for a ${create.kind} about: ${topic}. ` +
+          'Return only the document body — no preamble, no markdown fences.',
+        {},
+      );
+    } catch (err) {
+      missionLog.error(`file: content generation failed — ${err.message}`);
+    }
+  }
+  try {
+    const r = createFile({ kind: create.kind, title, body });
+    const noun = create.kind === 'pdf' ? 'PDF' : create.kind === 'note' ? 'note' : 'document';
+    return { speech: `Saved your ${noun} to the Desktop.`, handled: true, detail: r };
+  } catch (err) {
+    missionLog.error(`file: save failed — ${err.message}`);
+    return { speech: "I couldn't save that file.", handled: true, detail: { error: err.message } };
+  }
+}
+
 /**
  * Route a raw voice utterance to a spoken reply. Order: deterministic device
  * commands first (video → music → launch), which return a short confirmation
@@ -134,7 +162,21 @@ async function routeVoice(text) {
     return { speech: outcome.spotifySpeech(r), handled: true, detail: r };
   }
 
-  // 3. Question → search (gated); or app launch; else brain, with any fetched
+  // 3. File creation: "create a pdf about …", "write a note …".
+  const create = parseCreateCommand(text);
+  if (create) {
+    return runCreateFile(create);
+  }
+
+  // 4. Productivity deep links: draft an email / add a calendar event.
+  const productivity = parseProductivityCommand(text);
+  if (productivity) {
+    const { url, speech } = resolveProductivity(productivity);
+    shell.openExternal(url);
+    return { speech, handled: true, detail: productivity };
+  }
+
+  // 5. Question → search (gated); or app launch; else brain, with any fetched
   //    data injected as context.
   const t = String(text || '').trim().toLowerCase();
   let context = '';

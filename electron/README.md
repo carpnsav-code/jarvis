@@ -47,6 +47,8 @@ bad path is spoken back, never a crash.
 | `videoControl.js` | Voice → player intents (search / pause / resume / volume) and the raw postMessage payloads. |
 | `webSearch.js` | Layered web search (DuckDuckGo → Brave → TechCrunch) + weather / market / Instagram sources. |
 | `searchGate.js` | Groq YES/NO check on whether a message needs live data (skipped for greetings). |
+| `fileCreation.js` / `documentBuilder.js` | Generate a PDF/document from a request and save it to the Desktop (dependency-free PDF writer). |
+| `productivity.js` | Keyless Gmail-compose / Google-Calendar deep links from voice. |
 | `groqBrain.js` | The brain: Groq chat replies with multi-key failover + a personality prompt. |
 | `elevenlabs.js` | Optional ElevenLabs voice output (keyless fallback is the Web Speech voice). |
 | `outcome.js` | Turns command/search results into a spoken line or brain context. |
@@ -197,6 +199,22 @@ Before a search, `searchGate.js` runs a fast Groq YES/NO on whether the message
 actually needs live data — so "tell me a joke" doesn't fetch anything. Trivial
 messages ("hey", "ok", "thanks") **skip the gate entirely** (no Groq call at
 all). With no `GROQ_API_KEY`, the gate fails open and search still runs.
+
+## File creation
+
+Say "create a PDF about the solar system", "make a document about my trip", or
+"write a note to buy milk". The brain writes the content, and a dependency-free
+PDF writer (`documentBuilder.js`) or a text file is saved straight to your
+**Desktop** with a tidy timestamped name. Notes stay as your literal words; PDFs
+and documents get brain-generated bodies.
+
+## App integrations (keyless)
+
+Rather than a full OAuth flow per service, these open the service's own compose
+page with details pre-filled:
+
+- "email sam@example.com about lunch" → Gmail compose, already addressed.
+- "add a calendar event dentist on Friday 3pm" → Google Calendar event template.
 
 ## Persistent memory
 
