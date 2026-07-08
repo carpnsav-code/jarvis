@@ -1,0 +1,14 @@
+{
+  "name": "jarvis-computer-control",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron main-process computer control for Jarvis: launch apps and open websites from natural commands.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0"
+  }
+}
