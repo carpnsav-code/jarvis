@@ -18,6 +18,10 @@ bad path is spoken back, never a crash.
 | `videoControl.js` | Voice → player intents (search / pause / resume / volume) and the raw postMessage payloads. |
 | `webSearch.js` | Layered web search (DuckDuckGo → Brave → TechCrunch) + weather / market / Instagram sources. |
 | `searchGate.js` | Groq YES/NO check on whether a message needs live data (skipped for greetings). |
+| `memoryStore.js` | Persistent history + facts, atomic writes with a backup, under a fixed path. |
+| `memoryExtractor.js` | Fire-and-forget Groq call that extracts durable facts after each turn. |
+| `missionLog.js` | The mission log — console + `~/.jarvis/mission.log`; where background failures surface. |
+| `paths.js` | The fixed `~/.jarvis` storage location (deliberately not %APPDATA%). |
 | `server.js` | Loopback HTTP server that hosts the renderer (see "Why an HTTP server"). |
 | `main.js` | Electron entry: starts the server, loads the catalogue, exposes the IPC channels, drives the player. |
 | `preload.js` | Bridges a small surface to the renderer — no raw Node in the UI. |
@@ -139,6 +143,37 @@ Before a search, `searchGate.js` runs a fast Groq YES/NO on whether the message
 actually needs live data — so "tell me a joke" doesn't fetch anything. Trivial
 messages ("hey", "ok", "thanks") **skip the gate entirely** (no Groq call at
 all). With no `GROQ_API_KEY`, the gate fails open and search still runs.
+
+## Persistent memory
+
+The assistant remembers across sessions. Two things are stored in a single JSON
+file under a **fixed path** (`~/.jarvis/memory.json`):
+
+- **Conversation history** — every turn.
+- **Durable facts** — a separate list (preferences, personal details, ongoing
+  projects) extracted from conversations.
+
+Why a fixed path and not `%APPDATA%`/`userData`? That path shifts with how the
+app is launched (installed vs portable vs dev), which would split memory across
+files. `~/.jarvis` is stable.
+
+**Durability.** Writes are atomic (write `…json.tmp`, then rename over the real
+file) so a crash mid-save can't corrupt it, and the last good file is copied to
+`memory.backup.json` before every write, so load can fall back to it. On close
+the app forces an immediate synchronous `flush()` — it does not trust the
+debounce timer to fire during teardown.
+
+**Fact extraction.** After each turn (`assistant:remember`), a background Groq
+call extracts memorable facts and adds them to the list. It's strictly
+fire-and-forget, so it never delays the response, and any failure is logged to
+the **mission log** (`~/.jarvis/mission.log`) rather than vanishing.
+
+**Using what it remembers.** `assistant:context` returns the stored facts
+formatted as a prompt block to inject into the next AI call, and known facts are
+fed back into the extractor so it doesn't re-suggest them.
+
+**Single instance.** A single-instance lock means launching a second copy just
+focuses the existing window — two processes never race on the save file.
 
 ## Run
 

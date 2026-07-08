@@ -25,11 +25,15 @@ const { searchYouTube } = require('./youtube');
 const { parseVideoCommand, runVideoCommand } = require('./videoControl');
 const { search } = require('./webSearch');
 const { searchGate } = require('./searchGate');
+const { MemoryStore } = require('./memoryStore');
+const { extractInBackground } = require('./memoryExtractor');
+const missionLog = require('./missionLog');
 
 let apps = [];
 let appsPath = '';
 let win = null;
 let serverInfo = null;
+let memory = null;
 
 function createWindow() {
   win = new BrowserWindow({
@@ -101,28 +105,78 @@ async function routeVoice(text) {
   return runSearch(text);
 }
 
-app.whenReady().then(async () => {
-  serverInfo = await startServer({ dir: __dirname });
+/**
+ * Record a completed exchange and kick off background fact extraction. Returns
+ * immediately — extraction is fire-and-forget so it never delays the response.
+ */
+function rememberTurn(userText, assistantText) {
+  if (!memory) return { ok: false, error: 'memory not ready' };
+  memory.addTurn('user', userText);
+  memory.addTurn('assistant', assistantText);
+  extractInBackground(memory, userText, assistantText); // not awaited
+  return { ok: true };
+}
 
-  appsPath = path.join(app.getPath('userData'), 'apps.json');
-  try {
-    apps = loadApps(appsPath);
-  } catch (err) {
-    console.error(`Failed to load ${appsPath}: ${err.message}`);
-    apps = [];
-  }
-
-  ipcMain.handle('assistant:command', (_event, command) =>
-    handleCommand(command, { apps }),
-  );
-  ipcMain.handle('assistant:voice', (_event, text) => routeVoice(text));
-  ipcMain.handle('assistant:search', (_event, text) => runSearch(text));
-
-  createWindow();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+// Single-instance lock: if another copy is already running, hand off to it
+// (focus its window) and quit, rather than starting a second process that would
+// race on the memory save file and corrupt it.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
   });
+
+  app.whenReady().then(async () => {
+    serverInfo = await startServer({ dir: __dirname });
+    memory = new MemoryStore();
+    missionLog.info(`memory: loaded ${memory.getFacts().length} fact(s), ${memory.getHistory().length} history entr(ies)`);
+
+    appsPath = path.join(app.getPath('userData'), 'apps.json');
+    try {
+      apps = loadApps(appsPath);
+    } catch (err) {
+      missionLog.error(`Failed to load ${appsPath}: ${err.message}`);
+      apps = [];
+    }
+
+    ipcMain.handle('assistant:command', (_event, command) =>
+      handleCommand(command, { apps }),
+    );
+    ipcMain.handle('assistant:voice', (_event, text) => routeVoice(text));
+    ipcMain.handle('assistant:search', (_event, text) => runSearch(text));
+    // Memory channels.
+    ipcMain.handle('assistant:remember', (_event, turn) =>
+      rememberTurn((turn && turn.user) || '', (turn && turn.assistant) || ''),
+    );
+    ipcMain.handle('assistant:memory', () => ({
+      facts: memory.getFacts(),
+      history: memory.getHistory(),
+    }));
+    // The facts formatted for injection into the next AI call's context.
+    ipcMain.handle('assistant:context', () => memory.factsContext());
+
+    createWindow();
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+}
+
+// Force an immediate, synchronous save on the way out — don't trust the
+// debounce timer to fire during teardown.
+app.on('before-quit', () => {
+  if (!memory) return;
+  try {
+    memory.flush();
+  } catch (err) {
+    missionLog.error(`memory: final flush failed — ${err.message}`);
+  }
 });
 
 app.on('window-all-closed', () => {
