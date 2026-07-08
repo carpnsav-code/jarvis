@@ -1,0 +1,33 @@
+[project]
+name = "jarvis"
+version = "0.1.0"
+description = "A human-feeling voice assistant: low latency, streamed, and it knows when not to speak."
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.40",
+    "deepgram-sdk>=3.7",
+    "cartesia>=1.0",
+    "sounddevice>=0.4.6",
+    "numpy>=1.24",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+jarvis = "jarvis.main:run"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["jarvis*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
