@@ -1,27 +1,54 @@
 'use strict';
 
 /**
- * Renderer: the voice loop (guide Section 4) + the YouTube iframe relay.
+ * Renderer: the voice loop (guide Section 4) + the command-center UI + the
+ * YouTube iframe relay.
  *
- * Voice input — always-on Web Speech recognition. On a final transcript it goes
- * to the main process (which routes it to a device command or the brain) and
- * the spoken reply is played back. A mic mute button stops listening; the input
- * bar pulses while actively listening.
+ * Voice input — always-on Web Speech recognition. Final transcripts go to the
+ * main process (routed to a device command or the brain) and the spoken reply
+ * is played back. The orb reflects state (standby / listening / thinking /
+ * speaking) and the input bar pulses while listening.
  *
  * Voice output — ElevenLabs audio when the main process provides it, otherwise
- * the Web Speech API voice (deep male, rate 0.82, pitch 0.6, a 250ms gap between
- * sentences). Per the guide, the reply text is only revealed once audio starts,
- * so voice and text feel synchronised. A speaker button mutes output.
+ * the Web Speech API voice (deep male, rate 0.82, pitch 0.6, 250ms between
+ * sentences). The reply text is revealed only once audio starts, so voice and
+ * text feel synchronised.
  */
 
-// --- YouTube iframe relay (unchanged behaviour) --------------------------------
+// --- UI state -------------------------------------------------------------------
+const stage = document.getElementById('stage');
+const stateLabel = document.getElementById('state-label');
+const out = document.getElementById('out');
+const log = document.getElementById('log');
+const input = document.getElementById('utterance');
+
+const STATE_LABELS = { idle: 'Standby', listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking' };
+function setState(state) {
+  stage.dataset.state = state;
+  stateLabel.textContent = STATE_LABELS[state] || 'Standby';
+}
+function showText(text) {
+  out.textContent = text;
+}
+function appendLog(role, text) {
+  const entry = document.createElement('div');
+  entry.className = `entry ${role}`;
+  const tag = role === 'you' ? 'You' : 'Jarvis';
+  entry.innerHTML = `<b>${tag}</b><span></span>`;
+  entry.querySelector('span').textContent = text;
+  log.appendChild(entry);
+  log.scrollTop = log.scrollHeight;
+}
+function setChip(el, on, label) {
+  el.classList.toggle('off', !on);
+  el.innerHTML = `<span class="dot"></span> ${label}`;
+}
+
+// --- YouTube iframe relay -------------------------------------------------------
 const EMBED_ORIGIN = 'https://www.youtube-nocookie.com';
 const COMMAND_DELAY_MS = 700;
 
 const iframe = document.getElementById('player');
-const out = document.getElementById('out');
-const input = document.getElementById('utterance');
-
 let playerReady = false;
 const pendingPlayer = [];
 
@@ -52,12 +79,12 @@ window.jarvis.onPlayerCommand((message) => {
 const nowPlaying = document.getElementById('nowplaying');
 function renderNowPlaying(state) {
   if (!state || !state.track) {
-    nowPlaying.hidden = true;
+    nowPlaying.dataset.on = '0';
     return;
   }
   const artists = (state.artists || []).join(', ');
   const icon = state.playing ? '▶' : '⏸';
-  nowPlaying.hidden = false;
+  nowPlaying.dataset.on = '1';
   nowPlaying.textContent =
     `${icon} ${state.track}${artists ? ' — ' + artists : ''}` +
     (state.volume != null ? `  ·  vol ${state.volume}%` : '');
@@ -73,13 +100,8 @@ document.getElementById('spotify-auth').addEventListener('click', async () => {
 // --- Voice output ---------------------------------------------------------------
 let speakerMuted = false;
 
-function showText(text) {
-  out.textContent = text;
-}
-
 function pickVoice() {
   const voices = window.speechSynthesis.getVoices();
-  // Prefer a deep male English voice.
   return (
     voices.find((v) => /male/i.test(v.name) && /en/i.test(v.lang)) ||
     voices.find((v) => /(daniel|alex|david|george|fred)/i.test(v.name)) ||
@@ -100,8 +122,7 @@ function speakWebSpeech(text) {
       u.rate = 0.82;
       u.pitch = 0.6;
       i += 1;
-      // 250ms pause between sentences.
-      u.onend = () => setTimeout(next, 250);
+      u.onend = () => setTimeout(next, 250); // 250ms between sentences
       u.onerror = () => setTimeout(next, 250);
       window.speechSynthesis.speak(u);
     };
@@ -109,12 +130,10 @@ function speakWebSpeech(text) {
   });
 }
 
-/**
- * Speak a reply. Reveal the text only once audio actually starts, so the two
- * stay in sync. Uses ElevenLabs audio when the main process supplies it.
- */
+/** Speak a reply; reveal text only once audio starts so the two stay in sync. */
 async function speak(text) {
   if (!text) return;
+  setState('speaking');
   if (speakerMuted) {
     showText(text);
     return;
@@ -133,7 +152,6 @@ async function speak(text) {
     await el.play().catch(() => showText(text));
     await new Promise((r) => el.addEventListener('ended', r, { once: true }));
   } else {
-    // Web Speech: reveal text as playback begins.
     showText(text);
     await speakWebSpeech(text);
   }
@@ -144,8 +162,12 @@ async function handleUtterance(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed) return;
   input.value = '';
+  appendLog('you', trimmed);
+  setState('thinking');
   const result = await window.jarvis.sendVoice(trimmed);
+  appendLog('jarvis', result.speech);
   await speak(result.speech);
+  setState(micMuted ? 'idle' : 'listening');
 }
 
 document.getElementById('go').addEventListener('click', () => handleUtterance(input.value));
@@ -163,7 +185,11 @@ let recognition = null;
 let micMuted = false;
 
 function setListening(on) {
-  bar.classList.toggle('listening', on && !micMuted);
+  const active = on && !micMuted;
+  bar.classList.toggle('listening', active);
+  // Don't stomp on thinking/speaking states.
+  if (active && stage.dataset.state === 'idle') setState('listening');
+  if (!active && stage.dataset.state === 'listening') setState('idle');
 }
 
 if (SpeechRecognition) {
@@ -175,10 +201,9 @@ if (SpeechRecognition) {
   recognition.onstart = () => setListening(true);
   recognition.onend = () => {
     setListening(false);
-    // Keep it always-on: restart unless the user muted the mic.
     if (!micMuted) {
       try {
-        recognition.start();
+        recognition.start(); // keep it always-on
       } catch {
         /* already starting */
       }
@@ -193,21 +218,19 @@ if (SpeechRecognition) {
   };
   recognition.onerror = () => setListening(false);
 
-  if (!micMuted) {
-    try {
-      recognition.start();
-    } catch {
-      /* ignore */
-    }
+  try {
+    recognition.start();
+  } catch {
+    /* ignore */
   }
 } else {
-  micBtn.disabled = true;
-  micBtn.textContent = '🎤 (unavailable)';
+  setChip(micBtn, false, 'Mic N/A');
+  micBtn.style.pointerEvents = 'none';
 }
 
 micBtn.addEventListener('click', () => {
   micMuted = !micMuted;
-  micBtn.textContent = micMuted ? '🔇 Mic off' : '🎤 Mic on';
+  setChip(micBtn, !micMuted, micMuted ? 'Mic off' : 'Mic on');
   setListening(!micMuted);
   if (!recognition) return;
   if (micMuted) recognition.stop();
@@ -222,14 +245,15 @@ micBtn.addEventListener('click', () => {
 
 speakerBtn.addEventListener('click', () => {
   speakerMuted = !speakerMuted;
-  speakerBtn.textContent = speakerMuted ? '🔈 Speaker off' : '🔊 Speaker on';
+  setChip(speakerBtn, !speakerMuted, speakerMuted ? 'Speaker off' : 'Speaker on');
   if (speakerMuted) window.speechSynthesis.cancel();
 });
 
 // --- Startup greeting -----------------------------------------------------------
 window.addEventListener('load', async () => {
-  // Voice list can load asynchronously; nudge it.
-  window.speechSynthesis.getVoices();
+  window.speechSynthesis.getVoices(); // nudge async voice list
   const greeting = await window.jarvis.greeting();
+  appendLog('jarvis', greeting);
   await speak(greeting);
+  setState(micMuted ? 'idle' : 'listening');
 });

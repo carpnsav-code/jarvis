@@ -28,7 +28,7 @@ test('server serves index.html on / over http loopback', async () => {
     const res = await fetch(info.url + '/');
     assert.equal(res.status, 200);
     const body = await res.text();
-    assert.ok(body.includes('Jarvis'));
+    assert.match(body, /jarvis/i);
   } finally {
     await info.close();
   }
