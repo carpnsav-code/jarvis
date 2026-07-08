@@ -51,8 +51,44 @@ async def _main() -> None:
     )
 
     print(f"model: {config.model}  |  sample rate: {config.sample_rate} Hz")
-    conversation = Conversation(config, mic, speaker, stt, llm, tts)
-    await conversation.run()
+
+    # Optional HUD dashboard: serve the page + push live state over a WebSocket.
+    bridge = None
+    if config.dashboard_enabled:
+        bridge = await _start_dashboard(config)
+
+    conversation = Conversation(config, mic, speaker, stt, llm, tts, bridge=bridge)
+    try:
+        await conversation.run()
+    finally:
+        if bridge is not None:
+            await bridge.stop()
+
+
+async def _start_dashboard(config: Config):
+    """Start the dashboard bridge and open it in a browser. Best-effort — a
+    dashboard problem must never stop the voice assistant from running."""
+    import webbrowser
+    from pathlib import Path
+
+    try:
+        from .dashboard.bridge import DashboardBridge
+
+        static_file = Path(__file__).parent / "dashboard" / "index.html"
+        bridge = DashboardBridge(
+            static_file, host=config.dashboard_host, port=config.dashboard_port
+        )
+        await bridge.start()
+        print(f"dashboard: {bridge.url}")
+        if config.dashboard_open:
+            try:
+                webbrowser.open(bridge.url)
+            except Exception:
+                pass
+        return bridge
+    except Exception as exc:  # missing aiohttp, port in use, headless, ...
+        print(f"dashboard unavailable ({exc}) — continuing without it")
+        return None
 
 
 def run() -> None:

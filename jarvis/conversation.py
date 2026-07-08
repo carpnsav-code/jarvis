@@ -22,6 +22,7 @@ import asyncio
 import time
 
 from .audio.input import MicrophoneInput
+from .audio.level import rms_level
 from .audio.output import SpeakerOutput
 from .config import Config
 from .llm.base import LanguageModel
@@ -43,6 +44,7 @@ class Conversation:
         stt: SpeechToText,
         llm: LanguageModel,
         tts: TextToSpeech,
+        bridge=None,
     ) -> None:
         self._config = config
         self._mic = mic
@@ -50,6 +52,7 @@ class Conversation:
         self._stt = stt
         self._llm = llm
         self._tts = tts
+        self._bridge = bridge          # optional DashboardBridge (Phase 2)
         self._endpointer = EndOfTurnDetector(
             fast_confirm_ms=config.fast_confirm_ms,
             silence_ceiling_ms=config.silence_ceiling_ms,
@@ -59,12 +62,26 @@ class Conversation:
         self._response_task: asyncio.Task | None = None
         self._turn_index = 0
         self._last_final_time: float | None = None
+        self._ui_state = "idle"
+
+    # --- dashboard event emission (no-op when no bridge) ----------------------
+
+    def _emit(self, **event) -> None:
+        if self._bridge is not None:
+            self._bridge.emit(event)
+
+    def _set_state(self, state: str) -> None:
+        if state != self._ui_state:
+            self._ui_state = state
+            self._emit(type="state", value=state)
 
     async def run(self) -> None:
         self._running = True
         await self._stt.connect()
         self._mic.start()
         self._speaker.start()
+        self._emit(type="config", model=self._config.model, sampleRate=self._config.sample_rate)
+        self._emit(type="state", value="idle")
         print("Jarvis is listening. Speak naturally — say 'thanks' or 'bye' to wrap up.\n")
         try:
             await asyncio.gather(
@@ -82,6 +99,10 @@ class Conversation:
             if not self._running:
                 return
             await self._stt.send(chunk)
+            # Feed the HUD spectrum from the live mic level while we're listening
+            # (TTS output drives it while speaking — see _speak).
+            if self._bridge is not None and not self._responding:
+                self._emit(type="level", value=rms_level(chunk))
 
     # --- consuming recognizer events ------------------------------------------
 
@@ -92,10 +113,15 @@ class Conversation:
             if ev.kind == "interim":
                 if ev.text:
                     self._on_user_speaking()
+                    if not self._responding:
+                        self._set_state("listening")
+                        self._emit(type="transcript", text=ev.text)
                 self._endpointer.on_interim(ev.text)
             elif ev.kind == "final":
                 if ev.text:
                     self._on_user_speaking()
+                    if not self._responding:
+                        self._emit(type="transcript", text=ev.text)
                 self._last_final_time = time.monotonic()
                 self._endpointer.on_final(ev.text, speech_final=ev.speech_final)
             elif ev.kind == "utterance_end":
@@ -111,6 +137,7 @@ class Conversation:
         if self._response_task is not None and not self._response_task.done():
             self._response_task.cancel()
         self._responding = False
+        self._set_state("listening")
         print("  (barge-in — stopped to listen)")
 
     # --- driving turns (check-and-go, never a blind sleep) --------------------
@@ -128,6 +155,8 @@ class Conversation:
     async def _handle_turn(self, transcript: str, stopped_at: float) -> None:
         self._turn_index += 1
         print(f"you: {transcript}")
+        self._emit(type="transcript", text=transcript)
+        self._emit(type="turn", role="you", text=transcript)
 
         # Tier 5 — decide *before* any model call whether to stay silent.
         if self._config.signoff_enabled:
@@ -136,12 +165,17 @@ class Conversation:
             )
             if verdict.should_end:
                 print(f"  (sign-off: {verdict.reason} — staying silent)\n")
+                self._emit(type="reply", text="(sign-off — staying silent)", streaming=False)
+                self._emit(type="latency", ms=None)
+                self._set_state("idle")
                 return
 
         timer = TurnTimer()
         timer.stamp("stopped_speaking_at", stopped_at)
         timer.mark_transcript_final()
         self._responding = True
+        self._set_state("thinking")
+        self._emit(type="reply", text="", streaming=True)
         self._speaker.arm_first_sound(timer.mark_first_sound)
         self._response_task = asyncio.create_task(self._respond(transcript, timer))
 
@@ -190,19 +224,28 @@ class Conversation:
     async def _drive_response(self, tokens, timer: TurnTimer) -> None:
         chunker = SentenceChunker()
         printed_prefix = False
+        reply = ""
         try:
             async for token in tokens:
                 timer.mark_first_llm_token()
                 if not printed_prefix:
                     print("jarvis: ", end="", flush=True)
                     printed_prefix = True
+                    self._set_state("speaking")
                 print(token, end="", flush=True)
+                reply += token
+                self._emit(type="reply", text=reply, streaming=True)
                 for sentence in chunker.push(token):
                     await self._speak(sentence, timer)
             for sentence in chunker.flush():
                 await self._speak(sentence, timer)
             print()
             self._report(timer)
+            self._emit(type="reply", text=reply, streaming=False)
+            if reply.strip():
+                self._emit(type="turn", role="jarvis", text=reply.strip())
+            self._emit_metrics(timer)
+            self._set_state("idle")
         except asyncio.CancelledError:
             print()  # response was barged-in; leave the loop in a clean state
             raise
@@ -213,6 +256,9 @@ class Conversation:
         async for pcm in self._tts.synthesize(sentence.text, is_final=sentence.is_final):
             timer.mark_first_tts_byte()
             self._speaker.enqueue(pcm)
+            # Drive the HUD spectrum from the audio Jarvis is speaking.
+            if self._bridge is not None:
+                self._emit(type="level", value=rms_level(pcm))
 
     # --- reporting -------------------------------------------------------------
 
@@ -222,6 +268,23 @@ class Conversation:
         if cache_reads:
             print(f"    prompt cache: {cache_reads} tokens read (hit)")
         print()
+
+    def _emit_metrics(self, timer: TurnTimer) -> None:
+        if self._bridge is None:
+            return
+        segs = timer.segments_ms()
+        cache_reads = getattr(self._llm, "cache_read_tokens", lambda: 0)()
+        self._emit(
+            type="metrics",
+            stopToFinal=segs["stop -> transcript final"],
+            finalToToken=segs["transcript -> first token"],
+            tokenToByte=segs["first token -> first audio byte"],
+            byteToSound=segs["first byte -> first sound"],
+            total=timer.total_ms(),
+            cacheTokens=cache_reads,
+            model=self._config.model,
+            sampleRate=self._config.sample_rate,
+        )
 
     # --- teardown --------------------------------------------------------------
 

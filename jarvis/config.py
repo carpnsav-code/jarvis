@@ -69,6 +69,12 @@ class Config:
     vision_enabled: bool = True
     vision_max_edge: int = 1280
 
+    # --- HUD dashboard (Phase 2 live bridge) ---
+    dashboard_enabled: bool = True
+    dashboard_host: str = "127.0.0.1"
+    dashboard_port: int = 8765
+    dashboard_open: bool = True
+
     @classmethod
     def from_env(cls) -> "Config":
         return cls(
@@ -88,6 +94,10 @@ class Config:
             signoff_enabled=_bool("JARVIS_SIGNOFF_ENABLED", True),
             vision_enabled=_bool("JARVIS_VISION_ENABLED", True),
             vision_max_edge=_int("JARVIS_VISION_MAX_EDGE", 1280),
+            dashboard_enabled=_bool("JARVIS_DASHBOARD", True),
+            dashboard_host=_str("JARVIS_DASHBOARD_HOST", "127.0.0.1"),
+            dashboard_port=_int("JARVIS_DASHBOARD_PORT", 8765),
+            dashboard_open=_bool("JARVIS_DASHBOARD_OPEN", True),
         )
 
     def require_keys(self) -> None:

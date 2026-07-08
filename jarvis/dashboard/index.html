@@ -582,10 +582,49 @@
   JarvisUI.setMetrics({ model: "claude-haiku-4-5", sampleRate: 16000 });
   requestAnimationFrame(frame);
 
-  /* ── PHASE 1 DEMO DRIVER ─────────────────────────────────────
-     Scripts a short, realistic conversation so the composition is
-     alive. Phase 2 deletes this block and instead routes WebSocket
-     events from jarvis/dashboard/bridge.py to the same JarvisUI.* API. */
+  /* ── LIVE (WebSocket from the Python engine) ────────────────────
+     When served by jarvis/dashboard/bridge.py, live events drive the
+     same JarvisUI.* API the demo uses — no visual code changes between
+     the demo and the real assistant. */
+  function route(ev) {
+    switch (ev.type) {
+      case "config":     JarvisUI.setMetrics({ model: ev.model, sampleRate: ev.sampleRate }); break;
+      case "state":      JarvisUI.setState(ev.value); break;
+      case "level":      JarvisUI.setLevel(ev.value); break;
+      case "transcript": JarvisUI.setTranscript(ev.text); break;
+      case "reply":      JarvisUI.setReply(ev.text, ev.streaming); break;
+      case "turn":       JarvisUI.pushTurn(ev.role, ev.text); break;
+      case "latency":    JarvisUI.setLatency(ev.ms); break;
+      case "metrics":    JarvisUI.setMetrics(ev); break;
+    }
+  }
+  const Live = {
+    ws: null, retry: null,
+    wsURL() {
+      if (location.protocol === "https:") return "wss://" + location.host + "/ws";
+      if (location.protocol === "http:") return "ws://" + location.host + "/ws";
+      return "ws://127.0.0.1:8765/ws";  // opened as a file:// — try the default bridge port
+    },
+    connect() {
+      let ws;
+      try { ws = new WebSocket(this.wsURL()); } catch (_) { this.fallback(); return; }
+      this.ws = ws;
+      ws.onopen = () => { Demo.stop(); JarvisUI.setLink(true, "connected"); JarvisUI.setState("idle"); };
+      ws.onmessage = (e) => { try { route(JSON.parse(e.data)); } catch (_) {} };
+      ws.onerror = () => { try { ws.close(); } catch (_) {} };
+      ws.onclose = () => this.fallback();
+    },
+    fallback() {
+      JarvisUI.setLink(false, "demo mode");
+      Demo.start();
+      clearTimeout(this.retry);
+      this.retry = setTimeout(() => this.connect(), 4000);  // keep trying to reconnect
+    },
+  };
+
+  /* ── DEMO (fallback when no live bridge is connected) ───────────
+     Runs when the page is opened standalone, or on the hosted Artifact
+     where CSP blocks the socket. A `gen` counter lets Live cancel it. */
   const SCRIPT = [
     { you: "what's the weather looking like today", jarvis: "Sunny and about twenty-two degrees this afternoon. Light breeze, no rain expected.",
       metrics: { stopToFinal: 180, finalToToken: 320, tokenToByte: 140, byteToSound: 90, total: 730, cacheTokens: 0 } },
@@ -601,41 +640,40 @@
     for (const w of text.split(" ")) { out += (out ? " " : "") + w; fn(out, true); await sleep(base + Math.random() * base); }
     fn(out, false);
   }
-  async function demo() {
-    JarvisUI.setLink(false, "demo mode");
-    await sleep(1200);
-    for (;;) {
-      for (const turn of SCRIPT) {
-        // listening
-        JarvisUI.setState("listening"); JarvisUI.setReply("", false);
-        let lv = 0; const li = setInterval(() => { lv = 0.35 + Math.random() * 0.5; JarvisUI.setLevel(lv); }, 90);
-        JarvisUI.setTranscript(""); await typeInto((t) => JarvisUI.setTranscript(t), turn.you, 70);
-        clearInterval(li); JarvisUI.setLevel(0.05);
-        JarvisUI.pushTurn("you", turn.you);
-        await sleep(300);
-
-        if (turn.signoff) {   // Tier 5 — a goodbye ends in silence
-          JarvisUI.setState("idle"); JarvisUI.setReply("(sign-off — staying silent)", false);
-          JarvisUI.setLatency(null); await sleep(1800); JarvisUI.setReply("—", false); continue;
+  const Demo = {
+    gen: 0, running: false,
+    start() { if (this.running) return; this.running = true; this._loop(++this.gen); },
+    stop() { this.running = false; this.gen++; },
+    async _loop(g) {
+      await sleep(900);
+      while (g === this.gen) {
+        for (const turn of SCRIPT) {
+          if (g !== this.gen) return;
+          JarvisUI.setState("listening"); JarvisUI.setReply("", false);
+          let lv = 0; const li = setInterval(() => { lv = 0.35 + Math.random() * 0.5; JarvisUI.setLevel(lv); }, 90);
+          JarvisUI.setTranscript(""); await typeInto((t) => JarvisUI.setTranscript(t), turn.you, 70);
+          clearInterval(li); JarvisUI.setLevel(0.05);
+          JarvisUI.pushTurn("you", turn.you); await sleep(300);
+          if (g !== this.gen) return;
+          if (turn.signoff) {   // Tier 5 — a goodbye ends in silence
+            JarvisUI.setState("idle"); JarvisUI.setReply("(sign-off — staying silent)", false);
+            JarvisUI.setLatency(null); await sleep(1800); JarvisUI.setReply("—", false); continue;
+          }
+          JarvisUI.setState("thinking"); JarvisUI.setLevel(0.08);
+          await sleep(turn.metrics.finalToToken + 220);
+          if (g !== this.gen) return;
+          JarvisUI.setState("speaking");
+          let sv = 0; const si = setInterval(() => { sv = 0.4 + Math.random() * 0.55; JarvisUI.setLevel(sv); }, 80);
+          await typeInto((t, s) => JarvisUI.setReply(t, s), turn.jarvis, 55);
+          clearInterval(si); JarvisUI.setLevel(0.04);
+          JarvisUI.setMetrics(Object.assign({ model: "claude-haiku-4-5", sampleRate: 16000 }, turn.metrics));
+          JarvisUI.pushTurn("jarvis", turn.jarvis);
+          JarvisUI.setState("idle"); await sleep(1600);
         }
-
-        // thinking
-        JarvisUI.setState("thinking"); JarvisUI.setLevel(0.08);
-        await sleep(turn.metrics.finalToToken + 220);
-
-        // speaking (stream reply + drive output level)
-        JarvisUI.setState("speaking");
-        let sv = 0; const si = setInterval(() => { sv = 0.4 + Math.random() * 0.55; JarvisUI.setLevel(sv); }, 80);
-        await typeInto((t, s) => JarvisUI.setReply(t, s), turn.jarvis, 55);
-        clearInterval(si); JarvisUI.setLevel(0.04);
-        JarvisUI.setMetrics(Object.assign({ model: "claude-haiku-4-5", sampleRate: 16000 }, turn.metrics));
-        JarvisUI.pushTurn("jarvis", turn.jarvis);
-
-        JarvisUI.setState("idle");
-        await sleep(1600);
       }
-    }
-  }
-  demo();
+    },
+  };
+
+  Live.connect();  // live if the bridge is there; demo as fallback
 })();
 </script>

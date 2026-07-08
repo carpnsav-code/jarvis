@@ -31,6 +31,27 @@ python -m jarvis.main
 
 Speak naturally. Say "okay, thanks" or "bye" to see it wind down in silence.
 
+On start it also serves the **holographic HUD dashboard** and opens it in your
+browser (http://127.0.0.1:8765) — see below.
+
+---
+
+## The live HUD dashboard
+
+Running the app launches a sci-fi HUD that shows the *real* assistant in real
+time: a central reactor ring that changes color with state
+(idle / listening / thinking / speaking), your transcript and Jarvis's streaming
+reply, an audio spectrum driven by your actual mic and Jarvis's voice, and the
+Tier-1 latency breakdown filling in after every turn.
+
+- The Python engine pushes state to the page over a local WebSocket
+  (`jarvis/dashboard/bridge.py`); the page routes events to one small UI API
+  (`jarvis/dashboard/index.html`). The same page, opened on its own, plays a
+  scripted demo — so it always shows *something*.
+- Turn it off (pure CLI) with `JARVIS_DASHBOARD=false`; stop it auto-opening with
+  `JARVIS_DASHBOARD_OPEN=false`; change the port with `JARVIS_DASHBOARD_PORT`.
+- A dashboard problem never stops the voice loop — the assistant runs regardless.
+
 ---
 
 ## The tier map — where each idea lives
