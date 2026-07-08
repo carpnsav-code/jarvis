@@ -53,6 +53,28 @@ iframe.addEventListener('load', () => {
 // Main hands us a postMessage payload (pauseVideo / playVideo / setVolume).
 window.jarvis.onPlayerCommand((message) => sendOrQueue(message));
 
+// --- Spotify now-playing (pushed by main after any state change) --------------
+const nowPlaying = document.getElementById('nowplaying');
+function renderNowPlaying(state) {
+  if (!state || !state.track) {
+    nowPlaying.hidden = true;
+    return;
+  }
+  const artists = (state.artists || []).join(', ');
+  const icon = state.playing ? '▶' : '⏸';
+  nowPlaying.hidden = false;
+  nowPlaying.textContent = `${icon} ${state.track}${artists ? ' — ' + artists : ''}` +
+    (state.volume != null ? `  ·  vol ${state.volume}%` : '');
+}
+window.jarvis.onSpotifyState(renderNowPlaying);
+
+document.getElementById('spotify-auth').addEventListener('click', async () => {
+  out.textContent = 'Opening Spotify authorization…';
+  const res = await window.jarvis.spotifyAuthorize();
+  out.textContent = JSON.stringify(res, null, 2);
+  if (res.ok) renderNowPlaying(await window.jarvis.spotifyState());
+});
+
 // --- Manual harness: type an utterance to exercise the same voice routing -----
 async function run() {
   const text = input.value.trim();

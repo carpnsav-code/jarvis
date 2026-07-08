@@ -18,4 +18,8 @@ contextBridge.exposeInMainWorld('jarvis', {
   onPlayerLoad: (cb) => ipcRenderer.on('player:load', (_event, url) => cb(url)),
   onPlayerCommand: (cb) =>
     ipcRenderer.on('player:command', (_event, message) => cb(message)),
+  // Spotify
+  spotifyAuthorize: () => ipcRenderer.invoke('spotify:authorize'),
+  spotifyState: () => ipcRenderer.invoke('spotify:getState'),
+  onSpotifyState: (cb) => ipcRenderer.on('spotify:state', (_event, state) => cb(state)),
 });

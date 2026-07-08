@@ -18,7 +18,7 @@
  */
 
 const path = require('path');
-const { app, ipcMain, BrowserWindow } = require('electron');
+const { app, ipcMain, BrowserWindow, shell } = require('electron');
 const { loadApps, handleCommand } = require('./computerControl');
 const { startServer } = require('./server');
 const { searchYouTube } = require('./youtube');
@@ -28,12 +28,21 @@ const { searchGate } = require('./searchGate');
 const { MemoryStore } = require('./memoryStore');
 const { extractInBackground } = require('./memoryExtractor');
 const missionLog = require('./missionLog');
+const {
+  parseSpotifyCommand,
+  runSpotifyCommand,
+  authorize: spotifyAuthorize,
+  loadRefreshToken,
+  saveRefreshToken,
+  SpotifyClient,
+} = require('./spotify');
 
 let apps = [];
 let appsPath = '';
 let win = null;
 let serverInfo = null;
 let memory = null;
+let spotify = null;
 
 function createWindow() {
   win = new BrowserWindow({
@@ -94,6 +103,12 @@ async function routeVoice(text) {
     }
   }
 
+  // Music commands (play X by Y, next, previous, volume up/down, …).
+  const music = parseSpotifyCommand(text);
+  if (music) {
+    return runSpotifyCommand(spotify, music);
+  }
+
   const t = String(text || '').trim().toLowerCase();
   if (QUESTION_LIKE.test(t)) {
     return runSearch(text);
@@ -136,6 +151,16 @@ if (!gotLock) {
     memory = new MemoryStore();
     missionLog.info(`memory: loaded ${memory.getFacts().length} fact(s), ${memory.getHistory().length} history entr(ies)`);
 
+    // Spotify client. Client ID/Secret stay in the main process (env), never
+    // the renderer. Only the refresh token is persisted.
+    spotify = new SpotifyClient({
+      clientId: process.env.SPOTIFY_CLIENT_ID,
+      clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
+      refreshToken: loadRefreshToken(),
+      onState: (state) => win && win.webContents.send('spotify:state', state),
+    });
+    if (spotify.isConnected()) missionLog.info('spotify: connected (refresh token loaded)');
+
     appsPath = path.join(app.getPath('userData'), 'apps.json');
     try {
       apps = loadApps(appsPath);
@@ -159,6 +184,28 @@ if (!gotLock) {
     }));
     // The facts formatted for injection into the next AI call's context.
     ipcMain.handle('assistant:context', () => memory.factsContext());
+
+    // Spotify: interactive authorize (opens the browser, catches the redirect).
+    ipcMain.handle('spotify:authorize', async () => {
+      if (!process.env.SPOTIFY_CLIENT_ID || !process.env.SPOTIFY_CLIENT_SECRET) {
+        return { ok: false, error: 'Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET first.' };
+      }
+      try {
+        const refreshToken = await spotifyAuthorize({
+          clientId: process.env.SPOTIFY_CLIENT_ID,
+          clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
+          openUrl: (url) => shell.openExternal(url),
+        });
+        saveRefreshToken(refreshToken);
+        spotify.refreshToken = refreshToken;
+        missionLog.info('spotify: authorized and refresh token saved');
+        return { ok: true };
+      } catch (err) {
+        missionLog.error(`spotify: authorization failed — ${err.message}`);
+        return { ok: false, error: err.message };
+      }
+    });
+    ipcMain.handle('spotify:getState', () => spotify.getPlaybackState());
 
     createWindow();
 

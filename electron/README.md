@@ -18,6 +18,7 @@ bad path is spoken back, never a crash.
 | `videoControl.js` | Voice → player intents (search / pause / resume / volume) and the raw postMessage payloads. |
 | `webSearch.js` | Layered web search (DuckDuckGo → Brave → TechCrunch) + weather / market / Instagram sources. |
 | `searchGate.js` | Groq YES/NO check on whether a message needs live data (skipped for greetings). |
+| `spotify.js` | Spotify Web API: OAuth flow, silent token refresh, track scoring, device pick, playback. |
 | `memoryStore.js` | Persistent history + facts, atomic writes with a backup, under a fixed path. |
 | `memoryExtractor.js` | Fire-and-forget Groq call that extracts durable facts after each turn. |
 | `missionLog.js` | The mission log — console + `~/.jarvis/mission.log`; where background failures surface. |
@@ -174,6 +175,34 @@ fed back into the extractor so it doesn't re-suggest them.
 
 **Single instance.** A single-instance lock means launching a second copy just
 focuses the existing window — two processes never race on the save file.
+
+## Spotify
+
+Voice control of Spotify playback (requires Spotify Premium). Set up a free app
+at developer.spotify.com, then click **Connect Spotify** in the window (or call
+`spotify:authorize`).
+
+**Auth.** Authorization Code flow: a temporary server on `127.0.0.1:8888` catches
+the OAuth redirect, the code is exchanged for tokens, and the server closes. Only
+the **refresh token** is persisted (`~/.jarvis/spotify.json`); access tokens stay
+in memory and are refreshed silently before each call with a 30-second buffer.
+The Client ID/Secret live in the main process only (`SPOTIFY_CLIENT_ID` /
+`SPOTIFY_CLIENT_SECRET`) — never in the renderer, where devtools could read them.
+
+**Search.** Fetches 10 candidates (`limit=10` — Spotify 400s above that with
+field filters) and scores them to prefer exact artist + title, pushing covers,
+remixes, and live versions down unless you ask for them ("play X live by Y").
+
+**Devices.** Uses the active device, else the first available; if none exist it
+returns a clear "open Spotify on any device first".
+
+**Commands.** `play [song] by [artist]`, `pause`/`resume` the music, `next`,
+`previous`, `volume up`, `volume down`. After any change the new playback state
+is pushed to the UI (`spotify:state`) so the now-playing display updates live.
+
+> Routing note: bare "pause"/"resume" go to the *video* player; music pause/resume
+> is "pause the music". `next`/`previous`/`volume up`/`down` and "play X by Y" are
+> unambiguous and always route to Spotify.
 
 ## Run
 

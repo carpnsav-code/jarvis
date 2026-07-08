@@ -20,4 +20,6 @@ module.exports = {
   MEMORY_FILE: path.join(JARVIS_DIR, 'memory.json'),
   BACKUP_FILE: path.join(JARVIS_DIR, 'memory.backup.json'),
   MISSION_LOG: path.join(JARVIS_DIR, 'mission.log'),
+  // Only the Spotify refresh token is persisted here — never an access token.
+  SPOTIFY_TOKEN_FILE: path.join(JARVIS_DIR, 'spotify.json'),
 };
