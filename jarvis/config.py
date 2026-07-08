@@ -65,6 +65,10 @@ class Config:
     # --- Tier 5: sign-off detection ---
     signoff_enabled: bool = True
 
+    # --- Vision: look-at-my-screen ---
+    vision_enabled: bool = True
+    vision_max_edge: int = 1280
+
     @classmethod
     def from_env(cls) -> "Config":
         return cls(
@@ -82,6 +86,8 @@ class Config:
             fast_confirm_ms=_int("JARVIS_FAST_CONFIRM_MS", 250),
             silence_ceiling_ms=_int("JARVIS_SILENCE_CEILING_MS", 1500),
             signoff_enabled=_bool("JARVIS_SIGNOFF_ENABLED", True),
+            vision_enabled=_bool("JARVIS_VISION_ENABLED", True),
+            vision_max_edge=_int("JARVIS_VISION_MAX_EDGE", 1280),
         )
 
     def require_keys(self) -> None:

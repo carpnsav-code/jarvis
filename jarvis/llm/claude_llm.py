@@ -17,7 +17,7 @@ from typing import AsyncIterator, Optional
 from anthropic import AsyncAnthropic
 
 from .base import LanguageModel
-from .prompt import system_blocks
+from .prompt import system_blocks, vision_user_text
 
 
 class ClaudeLLM(LanguageModel):
@@ -46,6 +46,41 @@ class ClaudeLLM(LanguageModel):
 
         reply = "".join(parts)
         self._history.append({"role": "assistant", "content": reply})
+        self.last_usage = final.usage
+
+    async def stream_vision_reply(
+        self, images_b64: list[str], question: str | None = None
+    ) -> AsyncIterator[str]:
+        # Build the image-bearing user turn for this call only. We deliberately
+        # do NOT store the images in history — they'd be re-sent (and re-billed)
+        # every subsequent turn and would break the cached prefix. History keeps
+        # only a lightweight text placeholder.
+        content: list[dict] = [
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": b64},
+            }
+            for b64 in images_b64
+        ]
+        content.append({"type": "text", "text": vision_user_text(question)})
+        vision_turn = {"role": "user", "content": content}
+
+        now_str = datetime.now().strftime("%A %B %d, %Y at %I:%M %p")
+        parts: list[str] = []
+        async with self._client.messages.stream(
+            model=self._model,
+            max_tokens=self._max_tokens,
+            system=system_blocks(now_str),
+            messages=self._history + [vision_turn],
+        ) as stream:
+            async for text in stream.text_stream:
+                parts.append(text)
+                yield text
+            final = await stream.get_final_message()
+
+        placeholder = f"[I shared a screenshot] {question or 'What do you see?'}"
+        self._history.append({"role": "user", "content": placeholder})
+        self._history.append({"role": "assistant", "content": "".join(parts)})
         self.last_usage = final.usage
 
     def cache_read_tokens(self) -> int:

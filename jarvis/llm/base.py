@@ -18,5 +18,14 @@ class LanguageModel(abc.ABC):
         """Yield the reply as a stream of text chunks. Also responsible for
         maintaining conversation history across turns."""
 
+    @abc.abstractmethod
+    def stream_vision_reply(
+        self, images_b64: list[str], question: str | None = None
+    ) -> AsyncIterator[str]:
+        """Stream a reply about one or more base64 PNG screenshots.
+
+        `question` set -> answer it directly; None -> describe the screen.
+        Streams token by token like `stream_reply`."""
+
     def reset(self) -> None:  # pragma: no cover - optional hook
         """Clear conversation history (start a fresh conversation)."""

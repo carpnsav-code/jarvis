@@ -80,6 +80,27 @@ exact cases the behavior is pinned to.
 
 ---
 
+## See my screen
+
+Say **"look at my screen"**, **"what do you see"**, or **"analyze my screen"** and
+Jarvis captures the screen (all monitors), sends it to **Claude's native vision**,
+and describes it in its own voice — not a robotic list. Add a question and it
+answers directly instead of narrating: **"look at my screen and tell me what the
+error says"** skips the description and just tells you.
+
+- Detection is deterministic and runs **before** any model call
+  (`jarvis/turn/screen_intent.py`), the same place sign-off does — every phrasing
+  variant maps to one action so a command is never silently dropped.
+- Capture uses `mss`, which grabs the real display regardless of window state, so
+  it **works with the assistant minimized** — the reply comes back by voice only.
+- Screenshots are downscaled (`JARVIS_VISION_MAX_EDGE`, default 1280px long edge)
+  before encoding to keep vision tokens and latency down.
+- No extra provider or key — Claude is already the brain and takes images
+  directly. Disable with `JARVIS_VISION_ENABLED=false`.
+
+If capture ever fails, Jarvis says so out loud and the conversation keeps going —
+it never crashes the loop.
+
 ## Swapping a provider
 
 The STT, LLM, and TTS each sit behind a small interface (`*/base.py`). Changing a

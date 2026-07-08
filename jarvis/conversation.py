@@ -28,9 +28,10 @@ from .llm.base import LanguageModel
 from .metrics import TurnTimer
 from .stt.base import SpeechToText
 from .tts.base import TextToSpeech
-from .turn import signoff
+from .turn import screen_intent, signoff
 from .turn.endpointing import EndOfTurnDetector
 from .turn.sentence_chunker import SentenceChunker
+from .vision import capture
 
 
 class Conversation:
@@ -142,17 +143,55 @@ class Conversation:
         timer.mark_transcript_final()
         self._responding = True
         self._speaker.arm_first_sound(timer.mark_first_sound)
-        self._response_task = asyncio.create_task(
-            self._stream_response(transcript, timer)
-        )
+        self._response_task = asyncio.create_task(self._respond(transcript, timer))
+
+    # --- choosing what to say (normal vs. look-at-my-screen) -------------------
+
+    async def _respond(self, transcript: str, timer: TurnTimer) -> None:
+        """Pick a token source for this turn, then drive it to the speaker."""
+        tokens = None
+        if self._config.vision_enabled:
+            intent = screen_intent.evaluate(transcript)
+            if intent.is_request:
+                tokens = await self._vision_tokens(intent)
+        if tokens is None:
+            tokens = self._llm.stream_reply(transcript)
+        await self._drive_response(tokens, timer)
+
+    async def _vision_tokens(self, intent: screen_intent.ScreenIntent):
+        """Capture the screen (in the background) and return a vision token stream.
+
+        Capture runs in an executor so it never blocks the loop, and works even
+        when our window is minimized. On failure we speak a readable line instead
+        of crashing the conversation.
+        """
+        mode = "answering" if intent.question else "describing"
+        print(f"  (capturing screen — {mode})")
+        try:
+            loop = asyncio.get_running_loop()
+            images = await loop.run_in_executor(
+                None, capture.capture_all_monitors_b64, self._config.vision_max_edge
+            )
+        except Exception as exc:  # capture is best-effort; never take down the loop
+            print(f"  (screen capture failed: {exc})")
+            return self._static_tokens("I couldn't capture the screen just now.")
+        if not images:
+            return self._static_tokens("I couldn't find a screen to look at.")
+        return self._llm.stream_vision_reply(images, question=intent.question)
+
+    @staticmethod
+    async def _static_tokens(text: str):
+        """A one-shot token stream so a fixed line flows through the normal
+        chunker -> TTS path (used for readable capture errors)."""
+        yield text
 
     # --- streaming think -> speak (Tiers 3 & 4) -------------------------------
 
-    async def _stream_response(self, transcript: str, timer: TurnTimer) -> None:
+    async def _drive_response(self, tokens, timer: TurnTimer) -> None:
         chunker = SentenceChunker()
         printed_prefix = False
         try:
-            async for token in self._llm.stream_reply(transcript):
+            async for token in tokens:
                 timer.mark_first_llm_token()
                 if not printed_prefix:
                     print("jarvis: ", end="", flush=True)

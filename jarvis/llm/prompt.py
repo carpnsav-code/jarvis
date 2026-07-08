@@ -34,6 +34,26 @@ guessing at length.
 talking or grab the last word."""
 
 
+def vision_user_text(question: str | None) -> str:
+    """The user-turn text that accompanies a screenshot.
+
+    The persona lives in `STABLE_SYSTEM`, so the reply is already in Jarvis's
+    voice — this only sets the *mode*: describe naturally, or answer X directly.
+    """
+    if question:
+        q = question.strip().rstrip(".?!")
+        return (
+            f"Here's a screenshot of my screen. {q}? "
+            "Answer that directly using what's actually on the screen. Don't "
+            "narrate everything you see — just answer, briefly, out loud."
+        )
+    return (
+        "Here's a screenshot of my screen. Tell me what I'm looking at in your "
+        "own voice — natural and conversational, the way you'd describe it to a "
+        "person glancing over. Hit what matters; don't read out every element."
+    )
+
+
 def system_blocks(now_str: str) -> list[dict]:
     """Return the Anthropic `system` blocks: cached stable prefix + dynamic tail.
 
