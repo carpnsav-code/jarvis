@@ -22,4 +22,7 @@ contextBridge.exposeInMainWorld('jarvis', {
   spotifyAuthorize: () => ipcRenderer.invoke('spotify:authorize'),
   spotifyState: () => ipcRenderer.invoke('spotify:getState'),
   onSpotifyState: (cb) => ipcRenderer.on('spotify:state', (_event, state) => cb(state)),
+  // Voice output + greeting
+  tts: (text) => ipcRenderer.invoke('tts:speak', text),
+  greeting: () => ipcRenderer.invoke('assistant:greeting'),
 });

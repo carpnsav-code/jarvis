@@ -28,6 +28,9 @@ const { searchGate } = require('./searchGate');
 const { MemoryStore } = require('./memoryStore');
 const { extractInBackground } = require('./memoryExtractor');
 const missionLog = require('./missionLog');
+const { GroqBrain, loadGroqKeys } = require('./groqBrain');
+const elevenlabs = require('./elevenlabs');
+const outcome = require('./outcome');
 const {
   parseSpotifyCommand,
   runSpotifyCommand,
@@ -43,6 +46,9 @@ let win = null;
 let serverInfo = null;
 let memory = null;
 let spotify = null;
+let brain = null;
+
+const GREETING = process.env.JARVIS_GREETING || 'Jarvis online. How can I help?';
 
 function createWindow() {
   win = new BrowserWindow({
@@ -82,42 +88,68 @@ async function runSearch(text) {
   }
 }
 
+/** Ask the brain for a reply, degrading gracefully without a Groq key. */
+async function brainReply(text, context) {
+  if (brain && brain.isConfigured()) {
+    try {
+      return await brain.reply(text, { context });
+    } catch (err) {
+      missionLog.error(`brain: reply failed — ${err.message}`);
+      return context || "I'm having trouble reaching my brain right now.";
+    }
+  }
+  // No brain: speak fetched data directly, or say we can't answer.
+  if (context) return context;
+  return "I can't answer that yet — add a Groq API key to give me a brain.";
+}
+
 /**
- * Route a raw voice utterance. Order: video commands → information questions
- * (web search, gated) → launching an app / opening a website. If a launch
- * finds no match, we fall through to search as a last resort. Always resolves
- * to a structured result.
+ * Route a raw voice utterance to a spoken reply. Order: deterministic device
+ * commands first (video → music → launch), which return a short confirmation
+ * and skip the LLM entirely; otherwise the brain answers, with live search data
+ * injected as context when the question needs it. Always resolves to
+ * `{ speech, handled, detail }`.
  */
 async function routeVoice(text) {
-  const parsed = parseVideoCommand(text);
-  if (parsed) {
+  // 1. Video player commands.
+  const video = parseVideoCommand(text);
+  if (video) {
     try {
-      return await runVideoCommand(parsed, {
+      const r = await runVideoCommand(video, {
         searchImpl: (q) => searchYouTube(q),
         sendLoad: (url) => win && win.webContents.send('player:load', url),
         sendCommand: (msg) => win && win.webContents.send('player:command', msg),
         origin: serverInfo.url,
       });
+      return { speech: outcome.videoSpeech(r), handled: true, detail: r };
     } catch (err) {
-      return { ok: false, error: err.message };
+      return { speech: "I couldn't play that video.", handled: true, detail: { error: err.message } };
     }
   }
 
-  // Music commands (play X by Y, next, previous, volume up/down, …).
+  // 2. Music (Spotify) commands.
   const music = parseSpotifyCommand(text);
   if (music) {
-    return runSpotifyCommand(spotify, music);
+    const r = await runSpotifyCommand(spotify, music);
+    return { speech: outcome.spotifySpeech(r), handled: true, detail: r };
   }
 
+  // 3. Question → search (gated); or app launch; else brain, with any fetched
+  //    data injected as context.
   const t = String(text || '').trim().toLowerCase();
+  let context = '';
   if (QUESTION_LIKE.test(t)) {
-    return runSearch(text);
+    const s = await runSearch(text);
+    if (s.action === 'search') context = outcome.searchToContext(s);
+  } else {
+    const launched = handleCommand({ action: text, target: text }, { apps });
+    if (launched.ok) return { speech: outcome.launchSpeech(launched), handled: true, detail: launched };
+    const s = await runSearch(text);
+    if (s.action === 'search') context = outcome.searchToContext(s);
   }
 
-  // Try to launch an app / open a website; if nothing matches, search instead.
-  const launched = handleCommand({ action: text, target: text }, { apps });
-  if (launched.ok) return launched;
-  return runSearch(text);
+  const reply = await brainReply(text, context);
+  return { speech: reply, handled: false, detail: { context: Boolean(context) } };
 }
 
 /**
@@ -161,6 +193,19 @@ if (!gotLock) {
     });
     if (spotify.isConnected()) missionLog.info('spotify: connected (refresh token loaded)');
 
+    // The brain (Groq, multi-key failover). Facts from memory are injected into
+    // every reply's system prompt.
+    brain = new GroqBrain({
+      keys: loadGroqKeys(),
+      personality: process.env.GROQ_PERSONALITY,
+      factsProvider: () => (memory ? memory.factsContext() : ''),
+    });
+    missionLog.info(
+      brain.isConfigured()
+        ? `brain: ready with ${brain.keys.length} Groq key(s)`
+        : 'brain: no Groq key — chat replies disabled until one is set',
+    );
+
     appsPath = path.join(app.getPath('userData'), 'apps.json');
     try {
       apps = loadApps(appsPath);
@@ -172,8 +217,23 @@ if (!gotLock) {
     ipcMain.handle('assistant:command', (_event, command) =>
       handleCommand(command, { apps }),
     );
-    ipcMain.handle('assistant:voice', (_event, text) => routeVoice(text));
+    ipcMain.handle('assistant:voice', async (_event, text) => {
+      const result = await routeVoice(text);
+      rememberTurn(text, result.speech); // record + background fact extraction
+      return result;
+    });
     ipcMain.handle('assistant:search', (_event, text) => runSearch(text));
+    // Voice output: ElevenLabs audio when configured, else null (renderer uses
+    // the Web Speech API voice).
+    ipcMain.handle('tts:speak', async (_event, text) => {
+      try {
+        return { audio: await elevenlabs.synthesize(text) };
+      } catch (err) {
+        missionLog.error(`tts: ElevenLabs failed — ${err.message}`);
+        return { audio: null };
+      }
+    });
+    ipcMain.handle('assistant:greeting', () => GREETING);
     // Memory channels.
     ipcMain.handle('assistant:remember', (_event, turn) =>
       rememberTurn((turn && turn.user) || '', (turn && turn.assistant) || ''),

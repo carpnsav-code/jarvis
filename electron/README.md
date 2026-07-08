@@ -1,4 +1,33 @@
-# Computer control (Electron main process)
+# Jarvis desktop assistant (Electron)
+
+A standalone, always-listening desktop voice assistant. It hears you (Web Speech
+API), routes what you said to a device command *or* the brain (Groq), and talks
+back (ElevenLabs, or the Web Speech voice keyless). On top of the brain sit the
+"pro" capabilities: launching apps, a YouTube player, web search, persistent
+memory, and Spotify control.
+
+This is the guide's Electron/Groq/Web-Speech stack. (The repo also contains a
+separate Python voice loop under `jarvis/` — Deepgram/Claude/Cartesia — which is
+an alternative brain/voice stack, not wired to this app.)
+
+## The voice loop
+
+```
+🎤 Web Speech recognition (always on)
+   → main process routeVoice(text)
+        video command?  → control the player,  speak a confirmation
+        music command?  → control Spotify,     speak a confirmation
+        launch command? → spawn the app,       speak a confirmation
+        otherwise       → web search (gated) → brain (Groq) → speak the answer
+   → 🔊 ElevenLabs audio (or Web Speech voice), text revealed as audio starts
+```
+
+Device commands are deterministic and skip the LLM (instant, zero tokens);
+anything else goes to the brain, with live search data and remembered facts
+injected as context. Mic and speaker each have a mute toggle; the input bar
+pulses while listening; a greeting is spoken on boot.
+
+## Computer control
 
 Lets Jarvis act on the machine: **launch apps and open websites from natural
 commands**. The assistant decides *what* the user wants; this module decides
@@ -18,6 +47,9 @@ bad path is spoken back, never a crash.
 | `videoControl.js` | Voice → player intents (search / pause / resume / volume) and the raw postMessage payloads. |
 | `webSearch.js` | Layered web search (DuckDuckGo → Brave → TechCrunch) + weather / market / Instagram sources. |
 | `searchGate.js` | Groq YES/NO check on whether a message needs live data (skipped for greetings). |
+| `groqBrain.js` | The brain: Groq chat replies with multi-key failover + a personality prompt. |
+| `elevenlabs.js` | Optional ElevenLabs voice output (keyless fallback is the Web Speech voice). |
+| `outcome.js` | Turns command/search results into a spoken line or brain context. |
 | `spotify.js` | Spotify Web API: OAuth flow, silent token refresh, track scoring, device pick, playback. |
 | `memoryStore.js` | Persistent history + facts, atomic writes with a backup, under a fixed path. |
 | `memoryExtractor.js` | Fire-and-forget Groq call that extracts durable facts after each turn. |
@@ -115,6 +147,27 @@ anything that arrives earlier is queued and flushed once ready, never dropped.
 Search runs in the main process (`youtube.js`): it scrapes
 `youtube.com/results?…&sp=EgIQAQ%3D%3D` (the video-only filter) with a desktop
 User-Agent and pulls the first `"videoId"` out of the embedded JSON.
+
+## The brain (Groq)
+
+Anything that isn't a device command is answered by Groq (`groqBrain.js`,
+default model `llama3-70b-8192`). Add **up to four keys** (`GROQ_API_KEY`,
+`GROQ_API_KEY_2..4`) and it fails over automatically — a 429/401/5xx on one key
+rotates to the next, so a rate limit never stops the conversation. A
+**personality** system prompt (`GROQ_PERSONALITY`) runs every turn, and
+remembered facts + any live search data are injected as context so the brain
+uses what the assistant knows. Without a key, device commands still work and the
+brain politely says it needs one.
+
+## Voice (Web Speech + ElevenLabs)
+
+- **Input**: always-on `SpeechRecognition` in the renderer; final transcripts go
+  through the same router. Mic mute button; the bar pulses while listening.
+- **Output**: ElevenLabs audio when `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID`
+  are set (fetched in the main process, so the key never reaches the renderer);
+  otherwise the Web Speech voice (deep male, rate 0.82, pitch 0.6, 250ms between
+  sentences). The reply text is revealed only as audio starts, so they sync.
+- **Greeting**: `JARVIS_GREETING` is spoken once on boot.
 
 ## Web search
 
