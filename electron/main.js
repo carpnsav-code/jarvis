@@ -3,57 +3,87 @@
 /**
  * Electron main-process entry.
  *
- * This is the thin wiring layer. All the computer-control logic lives in
- * computerControl.js (and is unit-tested there without Electron); here we just:
+ * Thin wiring over the logic modules. At startup it:
+ *   1. starts a loopback HTTP server and points the window at it (NOT file://,
+ *      which YouTube's embed rejects with Error 153),
+ *   2. loads/seeds the app catalogue (userData/apps.json),
+ *   3. exposes two IPC channels:
+ *        assistant:command  { action, target }  → launch an app / open a website
+ *        assistant:voice    "raw utterance"      → video player, else app launch
  *
- *   1. figure out where the user's apps.json lives (Electron's userData dir),
- *   2. load/seed it once at startup,
- *   3. expose a single IPC channel the renderer/assistant calls to run a
- *      command, returning a structured result it can speak.
- *
- * The renderer never touches child_process — only the main process spawns, so
- * the privileged surface stays here and stays small.
+ * Video playback is driven the other way (main → renderer) via webContents.send:
+ * 'player:load' hands the renderer an embed URL; 'player:command' hands it a
+ * postMessage payload. Only the main process spawns or scrapes; the renderer
+ * just owns the iframe.
  */
 
 const path = require('path');
 const { app, ipcMain, BrowserWindow } = require('electron');
 const { loadApps, handleCommand } = require('./computerControl');
+const { startServer } = require('./server');
+const { searchYouTube } = require('./youtube');
+const { parseVideoCommand, runVideoCommand } = require('./videoControl');
 
-// Populated at startup from apps.json (seeded with defaults on first run).
 let apps = [];
 let appsPath = '';
+let win = null;
+let serverInfo = null;
 
 function createWindow() {
-  const win = new BrowserWindow({
-    width: 480,
-    height: 640,
+  win = new BrowserWindow({
+    width: 960,
+    height: 720,
     webPreferences: {
-      // Keep Node out of the renderer; commands cross the IPC boundary instead.
       contextIsolation: true,
       nodeIntegration: false,
       preload: path.join(__dirname, 'preload.js'),
+      // Let the embedded player autoplay without a click, since the "command"
+      // to play came by voice.
+      autoplayPolicy: 'no-user-gesture-required',
     },
   });
-  win.loadFile(path.join(__dirname, 'index.html'));
+  // Served over http on loopback — this is location.origin for the embed.
+  win.loadURL(serverInfo.url);
   return win;
 }
 
-app.whenReady().then(() => {
+/**
+ * Route a raw voice utterance: video commands first, then fall back to
+ * launching an app / opening a website. Always resolves to a structured result.
+ */
+async function routeVoice(text) {
+  const parsed = parseVideoCommand(text);
+  if (parsed) {
+    try {
+      return await runVideoCommand(parsed, {
+        searchImpl: (q) => searchYouTube(q),
+        sendLoad: (url) => win && win.webContents.send('player:load', url),
+        sendCommand: (msg) => win && win.webContents.send('player:command', msg),
+        origin: serverInfo.url,
+      });
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  }
+  // Not a video command — treat the utterance as an app/website request.
+  return handleCommand({ action: text, target: text }, { apps });
+}
+
+app.whenReady().then(async () => {
+  serverInfo = await startServer({ dir: __dirname });
+
   appsPath = path.join(app.getPath('userData'), 'apps.json');
   try {
     apps = loadApps(appsPath);
   } catch (err) {
-    // A corrupt apps.json shouldn't take the app down; run with an empty
-    // catalogue and let each command report "no app catalogue".
     console.error(`Failed to load ${appsPath}: ${err.message}`);
     apps = [];
   }
 
-  // The one channel the assistant calls: give it { action, target }, get back
-  // the structured launch result. Always resolves — never throws across IPC.
   ipcMain.handle('assistant:command', (_event, command) =>
     handleCommand(command, { apps }),
   );
+  ipcMain.handle('assistant:voice', (_event, text) => routeVoice(text));
 
   createWindow();
 
@@ -63,7 +93,8 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  // Launched apps were spawned detached + unref()'d, so they keep running even
-  // as the assistant itself quits here.
+  if (serverInfo) serverInfo.close();
+  // Apps launched via computer control were spawned detached + unref()'d, so
+  // they keep running even though the assistant quits here.
   if (process.platform !== 'darwin') app.quit();
 });
