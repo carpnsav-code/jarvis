@@ -18,6 +18,8 @@
  */
 
 const path = require('path');
+// Load .env (repo-root and electron/) before anything reads process.env.
+require('./envLoader').loadEnv();
 const { app, ipcMain, BrowserWindow, shell } = require('electron');
 const { loadApps, handleCommand } = require('./computerControl');
 const { startServer } = require('./server');
