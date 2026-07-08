@@ -16,6 +16,8 @@ bad path is spoken back, never a crash.
 | `defaultApps.js` | The default app/website catalogue, per platform, seeded on first run. |
 | `youtube.js` | Embed-URL builder, search-URL builder, results-page scrape for the first video id. |
 | `videoControl.js` | Voice → player intents (search / pause / resume / volume) and the raw postMessage payloads. |
+| `webSearch.js` | Layered web search (DuckDuckGo → Brave → TechCrunch) + weather / market / Instagram sources. |
+| `searchGate.js` | Groq YES/NO check on whether a message needs live data (skipped for greetings). |
 | `server.js` | Loopback HTTP server that hosts the renderer (see "Why an HTTP server"). |
 | `main.js` | Electron entry: starts the server, loads the catalogue, exposes the IPC channels, drives the player. |
 | `preload.js` | Bridges a small surface to the renderer — no raw Node in the UI. |
@@ -108,6 +110,35 @@ anything that arrives earlier is queued and flushed once ready, never dropped.
 Search runs in the main process (`youtube.js`): it scrapes
 `youtube.com/results?…&sp=EgIQAQ%3D%3D` (the video-only filter) with a desktop
 User-Agent and pulls the first `"videoId"` out of the embedded JSON.
+
+## Web search
+
+`assistant:search` (and any information-seeking utterance through
+`assistant:voice`) runs a layered chain — **no keys required for the baseline**.
+Every request sends the exact desktop User-Agent Chrome string; without it
+DuckDuckGo serves a bot page and Instagram returns 401.
+
+**General query**
+1. **DuckDuckGo** HTML scrape (`html.duckduckgo.com`, `Cache-Control: no-cache`),
+   parsing the `result__a` / `result__snippet` classes. We never use the Instant
+   Answer API — it's empty for real queries.
+2. **Brave Search API** — only if `BRAVE_API_KEY` is set, only when DDG is empty.
+3. **TechCrunch AI feed** — last resort, only for AI-news queries.
+
+**Specialised sources** (matched first, by query shape)
+
+| Query | Source |
+|---|---|
+| weather | `wttr.in/{loc}?format=j1` (structured JSON) |
+| BTC / ETH / S&P 500 price | Yahoo Finance chart API |
+| Instagram followers | `i.instagram.com` web profile API (needs the app-id header) |
+
+### The search gate
+
+Before a search, `searchGate.js` runs a fast Groq YES/NO on whether the message
+actually needs live data — so "tell me a joke" doesn't fetch anything. Trivial
+messages ("hey", "ok", "thanks") **skip the gate entirely** (no Groq call at
+all). With no `GROQ_API_KEY`, the gate fails open and search still runs.
 
 ## Run
 

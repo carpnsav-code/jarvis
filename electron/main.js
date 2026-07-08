@@ -23,6 +23,8 @@ const { loadApps, handleCommand } = require('./computerControl');
 const { startServer } = require('./server');
 const { searchYouTube } = require('./youtube');
 const { parseVideoCommand, runVideoCommand } = require('./videoControl');
+const { search } = require('./webSearch');
+const { searchGate } = require('./searchGate');
 
 let apps = [];
 let appsPath = '';
@@ -47,9 +49,31 @@ function createWindow() {
   return win;
 }
 
+// Utterances that are asking for information rather than an action. When one of
+// these leads, we route to web search (behind the gate) instead of trying to
+// launch an app.
+const QUESTION_LIKE =
+  /^(who|what|whats|when|where|why|how|which|is|are|do|does|did|can|could|should|will)\b|\b(search|look up|lookup|google|find out|weather|forecast|price|news|followers)\b/;
+
+/** Run the search gate, then search if live data is actually wanted. */
+async function runSearch(text) {
+  const gate = await searchGate(text);
+  if (!gate.live) {
+    return { ok: true, action: 'answer', search: false, gate };
+  }
+  try {
+    const result = await search(text);
+    return { ok: true, action: 'search', gate, ...result };
+  } catch (err) {
+    return { ok: false, action: 'search', gate, error: err.message };
+  }
+}
+
 /**
- * Route a raw voice utterance: video commands first, then fall back to
- * launching an app / opening a website. Always resolves to a structured result.
+ * Route a raw voice utterance. Order: video commands → information questions
+ * (web search, gated) → launching an app / opening a website. If a launch
+ * finds no match, we fall through to search as a last resort. Always resolves
+ * to a structured result.
  */
 async function routeVoice(text) {
   const parsed = parseVideoCommand(text);
@@ -65,8 +89,16 @@ async function routeVoice(text) {
       return { ok: false, error: err.message };
     }
   }
-  // Not a video command — treat the utterance as an app/website request.
-  return handleCommand({ action: text, target: text }, { apps });
+
+  const t = String(text || '').trim().toLowerCase();
+  if (QUESTION_LIKE.test(t)) {
+    return runSearch(text);
+  }
+
+  // Try to launch an app / open a website; if nothing matches, search instead.
+  const launched = handleCommand({ action: text, target: text }, { apps });
+  if (launched.ok) return launched;
+  return runSearch(text);
 }
 
 app.whenReady().then(async () => {
@@ -84,6 +116,7 @@ app.whenReady().then(async () => {
     handleCommand(command, { apps }),
   );
   ipcMain.handle('assistant:voice', (_event, text) => routeVoice(text));
+  ipcMain.handle('assistant:search', (_event, text) => runSearch(text));
 
   createWindow();
 
