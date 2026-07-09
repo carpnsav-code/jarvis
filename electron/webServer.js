@@ -37,7 +37,7 @@ const elevenlabs = require('./elevenlabs');
 const outcome = require('./outcome');
 const { parseCreateCommand, createFile } = require('./fileCreation');
 const { parseProductivityCommand, resolveProductivity } = require('./productivity');
-const { loadKnowledge } = require('./knowledge');
+const { loadKnowledgeFiles } = require('./knowledge');
 const { GHLClient } = require('./ghlClient');
 const { isGhlQuery, runGhlAgent } = require('./ghlAgent');
 const {
@@ -104,14 +104,29 @@ const spotify = new SpotifyClient({
     lastSpotifyState = s;
   },
 });
+// Knowledge is routed per turn, not injected into every prompt — casual chat
+// stays tiny (critical on rate-limited free keys); business questions get the
+// business doc; questions about the agent/setup also get the repo reference.
+const kbFiles = loadKnowledgeFiles();
+const KB_BUSINESS = kbFiles['mint-business.md'] || '';
+const KB_REPO = kbFiles['ghl.md'] || '';
+const BUSINESS_RE =
+  /\b(ghl|gohighlevel|high ?level|crm|leads?|deals?|opportunit\w*|pipeline|estimate|invoice|appointment|calendar|contacts?|customer|quote|mint|concrete|epoxy|floor\w*|skool|business|book)\b/i;
+const REPO_RE = /\b(agent|repo|mcp|server|setup|token|api|endpoint|tools?)\b/i;
+function knowledgeFor(text) {
+  const t = String(text || '');
+  if (!BUSINESS_RE.test(t)) return '';
+  return REPO_RE.test(t) ? `${KB_BUSINESS}\n\n---\n\n${KB_REPO}` : KB_BUSINESS;
+}
+
 const brain = new GroqBrain({
   keys: loadGroqKeys(),
   model: process.env.GROQ_MODEL,
   personality: process.env.GROQ_PERSONALITY,
-  knowledge: loadKnowledge(),
   factsProvider: () => memory.factsContext(),
 });
 const ghl = new GHLClient();
+let lastExtractAt = 0;
 
 function openUrl(url) {
   const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
@@ -145,7 +160,7 @@ async function searchContext(text) {
 async function brainReply(text, context) {
   if (brain.isConfigured()) {
     try {
-      return await brain.reply(text, { context });
+      return await brain.reply(text, { context, knowledge: knowledgeFor(text) });
     } catch (err) {
       missionLog.error(`brain: ${err.message}`);
       return context || "I'm having trouble reaching my brain right now.";
@@ -384,7 +399,12 @@ const handler = async (req, res) => {
         }
         memory.addTurn('user', text);
         memory.addTurn('assistant', result.speech);
-        extractInBackground(memory, text, result.speech);
+        // Throttled: extraction is an extra AI call — only for substantive
+        // turns, at most once every 3 minutes, to conserve rate limit.
+        if (text.length > 20 && Date.now() - lastExtractAt > 180000) {
+          lastExtractAt = Date.now();
+          extractInBackground(memory, text, result.speech);
+        }
         return sendJson(res, result);
       }
       if (url.pathname === '/api/tts') {

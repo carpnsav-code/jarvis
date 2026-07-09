@@ -15,25 +15,32 @@ const KNOWLEDGE_DIR = path.join(__dirname, 'knowledge');
 const MAX_CHARS = 16000;
 
 /**
- * @returns {string} concatenated knowledge, or '' if none.
+ * @returns {Record<string,string>} filename → content for each knowledge doc.
  */
-function loadKnowledge(dir = KNOWLEDGE_DIR) {
+function loadKnowledgeFiles(dir = KNOWLEDGE_DIR) {
+  const out = {};
   let files;
   try {
     files = fs.readdirSync(dir).filter((f) => f.endsWith('.md')).sort();
   } catch {
-    return '';
+    return out;
   }
-  const parts = [];
   for (const file of files) {
     try {
-      parts.push(fs.readFileSync(path.join(dir, file), 'utf8').trim());
+      out[file] = fs.readFileSync(path.join(dir, file), 'utf8').trim();
     } catch {
       /* skip unreadable */
     }
   }
-  const combined = parts.join('\n\n---\n\n');
+  return out;
+}
+
+/**
+ * @returns {string} concatenated knowledge, or '' if none.
+ */
+function loadKnowledge(dir = KNOWLEDGE_DIR) {
+  const combined = Object.values(loadKnowledgeFiles(dir)).join('\n\n---\n\n');
   return combined.length > MAX_CHARS ? `${combined.slice(0, MAX_CHARS)}\n…(truncated)` : combined;
 }
 
-module.exports = { loadKnowledge, KNOWLEDGE_DIR };
+module.exports = { loadKnowledge, loadKnowledgeFiles, KNOWLEDGE_DIR };

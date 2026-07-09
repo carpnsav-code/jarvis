@@ -28,7 +28,7 @@ const DEFAULT_PERSONALITY =
   'ear: short, plain spoken sentences, no markdown, no lists, no emoji. Lead with the ' +
   'answer, keep it tight, and never ramble. Never say the word "Jarvis" in your replies.';
 
-const MAX_HISTORY = 20; // keep the last N turns to bound the prompt
+const MAX_HISTORY = 8; // keep the last N turns to bound the prompt (voice turns are short)
 
 /**
  * Collect Groq keys from the environment, in priority order, de-duplicated.
@@ -81,10 +81,13 @@ class GroqBrain {
     return this.keys.length > 0;
   }
 
-  /** Build the system prompt: personality + knowledge + remembered facts + live context. */
-  buildSystem(context) {
+  /** Build the system prompt: personality + knowledge + remembered facts + live context.
+   *  `knowledge` overrides the constructor default per turn — pass '' to skip it
+   *  entirely (keeps casual turns cheap on rate-limited keys). */
+  buildSystem(context, knowledge) {
+    const kb = knowledge === undefined ? this.knowledge : knowledge;
     const parts = [this.personality];
-    if (this.knowledge) parts.push(`Background knowledge you have:\n${this.knowledge}`);
+    if (kb) parts.push(`Background knowledge you have:\n${kb}`);
     const facts = this.factsProvider ? this.factsProvider() : '';
     if (facts) parts.push(facts);
     if (context) parts.push(`Use this current information to answer:\n${context}`);
@@ -99,13 +102,13 @@ class GroqBrain {
    * @param {{context?: string}} [opts]
    * @returns {Promise<string>}
    */
-  async reply(userText, { context = '' } = {}) {
+  async reply(userText, { context = '', knowledge } = {}) {
     if (!this.isConfigured()) {
       throw new Error('No Groq API key configured.');
     }
 
     const messages = [
-      { role: 'system', content: this.buildSystem(context) },
+      { role: 'system', content: this.buildSystem(context, knowledge) },
       ...this.history,
       { role: 'user', content: userText },
     ];

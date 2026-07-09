@@ -19,8 +19,38 @@ const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // big model is rate-limited (free-tier limits on 70b are tight).
 const AGENT_MODEL = 'llama-3.3-70b-versatile';
 const FALLBACK_MODEL = 'llama-3.1-8b-instant';
-const MAX_STEPS = 5;
+const MAX_STEPS = 4;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Send only the tool groups the request needs — the full 13-tool schema costs
+// thousands of tokens per step, which matters on free-tier rate limits.
+// Contacts are always included (most flows need a contactId).
+const TOOL_GROUPS = {
+  contacts: ['ghl_latest_leads', 'ghl_list_contacts', 'ghl_create_contact', 'ghl_add_contact_tags'],
+  deals: ['ghl_list_pipelines', 'ghl_list_opportunities', 'ghl_update_opportunity'],
+  calendar: ['ghl_list_calendars', 'ghl_list_appointments', 'ghl_get_free_slots', 'ghl_create_appointment'],
+  convo: ['ghl_list_conversations', 'ghl_send_message'],
+};
+function toolsFor(text) {
+  const t = String(text || '').toLowerCase();
+  const names = new Set(TOOL_GROUPS.contacts);
+  let matched = false;
+  if (/\bdeals?\b|opportunit|pipeline|\bwon\b|\blost\b|stage/.test(t)) {
+    TOOL_GROUPS.deals.forEach((n) => names.add(n));
+    matched = true;
+  }
+  if (/calendar|appointment|book|slot|schedul|meet|visit/.test(t)) {
+    TOOL_GROUPS.calendar.forEach((n) => names.add(n));
+    matched = true;
+  }
+  if (/\btext\b|\bsms\b|message|email|conversation|\bsay\b|\btell\b|reach out|follow up/.test(t)) {
+    TOOL_GROUPS.convo.forEach((n) => names.add(n));
+    matched = true;
+  }
+  if (/\bleads?\b|contact|customer|\btag\b/.test(t)) matched = true;
+  if (!matched) return TOOLS; // unrecognised request — give it everything
+  return TOOLS.filter((tool) => names.has(tool.function.name));
+}
 
 // Does this utterance look like a CRM/GHL request?
 const GHL_INTENT =
@@ -42,7 +72,7 @@ function benchMs(errText) {
   return /per day|TPD/i.test(errText) ? 10 * 60 * 1000 : 15 * 1000;
 }
 
-async function callGroq(messages, { keys, model, groqImpl }) {
+async function callGroq(messages, { keys, model, groqImpl, tools = TOOLS }) {
   let lastErr = null;
   // Ladder: primary → fallback immediately (separate quota) → both again
   // after a breather so per-minute limits can clear.
@@ -61,7 +91,7 @@ async function callGroq(messages, { keys, model, groqImpl }) {
         const res = await groqImpl(GROQ_URL, {
           method: 'POST',
           headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: attempt.model, messages, tools: TOOLS, tool_choice: 'auto', temperature: 0.2, max_tokens: 500 }),
+          body: JSON.stringify({ model: attempt.model, messages, tools, tool_choice: 'auto', temperature: 0.2, max_tokens: 350 }),
         });
         if (res.status === 429 || res.status === 401 || res.status >= 500) {
           lastErr = new Error(`HTTP ${res.status}`);
@@ -128,9 +158,10 @@ async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT
     { role: 'user', content: text },
   ];
 
+  const tools = toolsFor(text);
   try {
     for (let step = 0; step < MAX_STEPS; step++) {
-      const msg = await callGroq(messages, { keys, model, groqImpl });
+      const msg = await callGroq(messages, { keys, model, groqImpl, tools });
       messages.push(msg);
 
       const calls = msg.tool_calls || [];
@@ -160,4 +191,4 @@ async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT
   }
 }
 
-module.exports = { isGhlQuery, runGhlAgent, AGENT_MODEL, _resetModelBench };
+module.exports = { isGhlQuery, runGhlAgent, AGENT_MODEL, _resetModelBench, toolsFor };
