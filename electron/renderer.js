@@ -93,6 +93,10 @@ document.getElementById('spotify-auth').addEventListener('click', async () => {
 });
 
 // --- Voice output (interruptible) ----------------------------------------------
+// Auto-duck: he speaks at a reduced volume so the mic isn't saturated by his own
+// voice and can pick up you talking over him (enabling reliable barge-in on
+// speakers). Lower = easier to interrupt but quieter. Tune to taste.
+const DUCK_VOLUME = 0.5;
 let speakerMuted = false;
 let speaking = false;
 let currentAudio = null;
@@ -145,6 +149,7 @@ function speakWebSpeech(text) {
       if (v) u.voice = v;
       u.rate = 0.9;
       u.pitch = 0.7;
+      u.volume = DUCK_VOLUME; // stay quiet enough to be talked over
       i += 1;
       u.onend = () => setTimeout(next, 200);
       u.onerror = () => setTimeout(next, 200);
@@ -190,6 +195,7 @@ async function speak(text) {
     await new Promise((resolve) => {
       speechDone = resolve;
       const el = new Audio(audio);
+      el.volume = DUCK_VOLUME; // ducked so you can talk over him
       currentAudio = el;
       el.addEventListener('playing', () => showText(text), { once: true });
       el.addEventListener('ended', () => {
