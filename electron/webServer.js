@@ -40,6 +40,7 @@ const { parseProductivityCommand, resolveProductivity } = require('./productivit
 const { loadKnowledgeFiles } = require('./knowledge');
 const { GHLClient } = require('./ghlClient');
 const { isGhlQuery, runGhlAgent, parseTextCommand, runTextCommand, parseEmailCommand, runEmailCommand } = require('./ghlAgent');
+const { isQuoteStart, advanceQuote, money } = require('./quoteFlow');
 const {
   parseSpotifyCommand,
   runSpotifyCommand,
@@ -96,6 +97,21 @@ try {
 }
 const memory = new MemoryStore();
 let lastSpotifyState = null;
+// An estimate being collected/confirmed across turns (null when none pending).
+let pendingQuote = null;
+
+// Actually send a confirmed estimate and speak the result.
+async function sendConfirmedQuote(fields) {
+  try {
+    const r = await ghl.sendQuote(fields);
+    return (
+      `Sent, sir. A ${r.template} estimate for ${r.contact}, ${r.squareFeet} square feet at ` +
+      `$${money(r.pricePerSquareFoot)} per square foot — $${money(r.total)} — by text and email.`
+    );
+  } catch (err) {
+    return `I couldn't send that estimate, sir — ${String(err.message).slice(0, 120)}`;
+  }
+}
 const spotify = new SpotifyClient({
   clientId: process.env.SPOTIFY_CLIENT_ID,
   clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
@@ -241,6 +257,22 @@ async function routeVoice(text, pageOrigin = ORIGIN) {
   const emailCmd = parseEmailCommand(text);
   if (emailCmd && ghl.isConfigured()) {
     out.speech = await runEmailCommand(ghl, emailCmd);
+    return out;
+  }
+
+  // Estimates: collect template + square feet + price, read them back, and only
+  // send on an explicit yes. Deterministic so the AI can never invent numbers or
+  // fire one off unprompted. An in-progress estimate captures every turn until
+  // it's sent or cancelled.
+  if ((pendingQuote || isQuoteStart(text)) && ghl.isConfigured()) {
+    const r = advanceQuote(pendingQuote, text);
+    if (r.send) {
+      pendingQuote = null;
+      out.speech = await sendConfirmedQuote(r.send);
+    } else {
+      pendingQuote = r.state;
+      out.speech = r.speech;
+    }
     return out;
   }
 

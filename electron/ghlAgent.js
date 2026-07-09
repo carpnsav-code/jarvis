@@ -34,7 +34,10 @@ const TOOL_GROUPS = {
   deals: ['ghl_list_pipelines', 'ghl_list_opportunities', 'ghl_update_opportunity'],
   calendar: ['ghl_list_calendars', 'ghl_list_appointments', 'ghl_get_free_slots', 'ghl_create_appointment'],
   convo: ['ghl_list_conversations', 'ghl_send_message'],
-  quotes: ['ghl_send_quote', 'ghl_list_estimate_templates'],
+  // ghl_send_quote is intentionally excluded: estimates only go out through the
+  // deterministic collect-and-confirm flow, never the AI, so numbers are never
+  // invented and nothing sends without an explicit yes.
+  quotes: ['ghl_list_estimate_templates'],
 };
 function toolsFor(text) {
   const t = String(text || '').toLowerCase();
@@ -304,10 +307,11 @@ async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT
         '9 AM-2 PM, Sunday closed, hourly slots. Always book BEFORE 2 PM and offer a ' +
         'morning slot first; only go past 2 if the customer truly cannot do earlier. Check ' +
         'free slots before promising a time. Every appointment — create AND reschedule — ' +
-        'stays assigned to Dan (never the round-robin). For "send a quote/estimate" call ' +
-        'ghl_send_quote ONCE — it does the whole SOP (template + customer + sqft x price ' +
-        'per sqft, sent by text and email) — using exactly the numbers Dan gave, never ' +
-        'invented ones. Never quote a price or recommend a coating system; if a customer ' +
+        'stays assigned to Dan (never the round-robin). Estimates are sent through a ' +
+        'separate confirmation step, NOT by you — never send or fabricate an estimate. If ' +
+        'asked to send one, say you will need the template, the square footage, and the ' +
+        'price per square foot, and that you will confirm before sending. ' +
+        'Never quote a price or recommend a coating system; if a customer ' +
         'asks price twice, escalate to Dan (only exception: a 2-car garage under 500 sq ft ' +
         'is $2,000-3,000 and routes to Joseph Ruiz, opportunity moved to Dead). Any price ' +
         'given means the opportunity moves to Quote Sent; invoices are due the same day ' +
