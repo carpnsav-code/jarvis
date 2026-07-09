@@ -365,10 +365,15 @@ let recChunks = [];
 async function startRecording() {
   primeAudio();
   stopSpeaking(); // pressing to talk interrupts him
+  // Instant feedback the moment you tap — before the mic prompt resolves.
+  isRecording = true;
+  talkBtn.classList.add('recording');
+  talkBtn.textContent = '● Starting…';
+  setState('listening');
   try {
     if (!mediaStream) mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch {
-    appendLog('jarvis', '🎤 I need microphone access — allow it for this site, then tap again.');
+    appendLog('jarvis', '🎤 Microphone is blocked. Allow mic access for this site in your browser, then tap again.');
     stopRecording();
     return;
   }
@@ -398,8 +403,6 @@ async function startRecording() {
     }
   };
   recorder.start();
-  isRecording = true;
-  talkBtn.classList.add('recording');
   talkBtn.textContent = '■ Stop & send';
   setState('listening');
 }

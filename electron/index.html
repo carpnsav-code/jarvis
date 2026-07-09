@@ -209,6 +209,22 @@
           s: 0.2 + Math.random() * 0.8, z: Math.random(),
         }));
 
+        // Galaxy backdrop: a deep starfield + drifting nebula clouds.
+        const stars = Array.from({ length: 320 }, () => ({
+          x: Math.random(), y: Math.random(),
+          r: Math.random() * 1.5 + 0.25,
+          tw: Math.random() * Math.PI * 2,
+          sp: 0.4 + Math.random() * 2.2,
+          warm: Math.random(),
+        }));
+        const nebula = [
+          { x: 0.22, y: 0.28, r: 0.55, c: [150, 24, 60] },
+          { x: 0.80, y: 0.22, r: 0.55, c: [70, 24, 130] },
+          { x: 0.68, y: 0.82, r: 0.6, c: [170, 30, 44] },
+          { x: 0.30, y: 0.78, r: 0.5, c: [34, 46, 130] },
+        ];
+        let drift = 0;
+
         function stateAmp(state, t) {
           if (state === 'speaking') return 1.0 + Math.sin(t * 9) * 0.5 + Math.sin(t * 17) * 0.25;
           if (state === 'listening') return 0.5 + Math.sin(t * 3) * 0.28;
@@ -230,6 +246,28 @@
           // Rotation speed reacts to state.
           rot += 0.005 + (state === 'speaking' ? 0.02 * Math.abs(Math.sin(t * 8)) : state === 'thinking' ? 0.03 : 0.003);
           ctx.clearRect(0, 0, W, H);
+
+          // --- galaxy backdrop ---
+          drift += 0.0004;
+          for (const n of nebula) {
+            const gx = (n.x + Math.sin(drift + n.y * 6) * 0.02) * W;
+            const gy = (n.y + Math.cos(drift + n.x * 6) * 0.02) * H;
+            const gr = n.r * Math.max(W, H) * 0.6;
+            const ng = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
+            ng.addColorStop(0, `rgba(${n.c[0]},${n.c[1]},${n.c[2]},0.16)`);
+            ng.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = ng;
+            ctx.fillRect(0, 0, W, H);
+          }
+          for (const s of stars) {
+            const a = 0.35 + 0.65 * Math.abs(Math.sin(t * s.sp + s.tw));
+            const g2 = 200 + Math.floor(s.warm * 55);
+            const b2 = 210 + Math.floor((1 - s.warm) * 45);
+            ctx.fillStyle = `rgba(255,${g2},${b2},${a})`;
+            ctx.beginPath();
+            ctx.arc(s.x * W, s.y * H, s.r * devicePixelRatio, 0, Math.PI * 2);
+            ctx.fill();
+          }
 
           // base projection glow
           const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 3.4);
