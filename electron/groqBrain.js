@@ -111,6 +111,20 @@ class GroqBrain {
     ];
 
     let lastError = null;
+    // Two passes over the keys with a breather between, so a single-key
+    // per-minute rate limit recovers instead of failing the turn.
+    for (let pass = 0; pass < 2; pass++) {
+      if (pass > 0) await new Promise((r) => setTimeout(r, 1300));
+      const reply = await this.tryKeys(messages, userText);
+      if (reply !== null) return reply;
+      lastError = this.lastTryError;
+    }
+    throw new Error(`All Groq keys failed. Last error: ${lastError ? lastError.message : 'unknown'}`);
+  }
+
+  /** One rotation over the keys; returns the reply or null if all failed. */
+  async tryKeys(messages, userText) {
+    this.lastTryError = null;
     for (let i = 0; i < this.keys.length; i++) {
       const key = this.keys[i];
       try {
@@ -122,7 +136,7 @@ class GroqBrain {
 
         // Rotate on rate limit, bad key, or server error.
         if (res.status === 429 || res.status === 401 || res.status >= 500) {
-          lastError = new Error(`Groq key ${i + 1} failed: HTTP ${res.status}`);
+          this.lastTryError = new Error(`Groq key ${i + 1} failed: HTTP ${res.status}`);
           continue;
         }
         if (!res.ok) throw new Error(`Groq HTTP ${res.status}`);
@@ -138,11 +152,11 @@ class GroqBrain {
         }
         return reply;
       } catch (err) {
-        lastError = err;
+        this.lastTryError = err;
         // network error → try the next key too
       }
     }
-    throw new Error(`All Groq keys failed. Last error: ${lastError ? lastError.message : 'unknown'}`);
+    return null;
   }
 
   reset() {

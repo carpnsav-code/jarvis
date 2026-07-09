@@ -67,6 +67,26 @@ test('runGhlAgent says not connected without a token', async () => {
   assert.match(speech, /not connected/i);
 });
 
+test('runGhlAgent survives a rate limit: 429 first, succeeds on retry', async () => {
+  const client = new GHLClient({ token: 't', locationId: 'l', fetchImpl: async () => ok({}) });
+  let calls = 0;
+  const groqImpl = async () => {
+    calls += 1;
+    if (calls === 1) return { ok: false, status: 429, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { role: 'assistant', content: 'You have three open deals, sir.' } }] }) };
+  };
+  const speech = await runGhlAgent('how many deals', { keys: ['k'], client, groqImpl });
+  assert.match(speech, /three open deals/);
+  assert.ok(calls >= 2, 'should have retried after the 429');
+});
+
+test('runGhlAgent never throws — total AI failure becomes a spoken reply', async () => {
+  const client = new GHLClient({ token: 't', locationId: 'l', fetchImpl: async () => ok({}) });
+  const groqImpl = async () => ({ ok: false, status: 429, json: async () => ({}) });
+  const speech = await runGhlAgent('list my deals', { keys: ['k'], client, groqImpl });
+  assert.match(speech, /rate-limited|snag/i);
+});
+
 test('runGhlAgent runs a tool-calling loop and returns the spoken answer', async () => {
   const client = new GHLClient({
     token: 't', locationId: 'l',

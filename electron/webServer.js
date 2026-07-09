@@ -369,7 +369,19 @@ const handler = async (req, res) => {
       if (url.pathname === '/api/voice') {
         const text = data.text || '';
         const pageOrigin = req.headers.host ? `http://${req.headers.host}` : ORIGIN;
-        const result = await routeVoice(text, pageOrigin);
+        let result;
+        try {
+          result = await routeVoice(text, pageOrigin);
+        } catch (err) {
+          // A routing failure must reach the user as speech, never as a 500.
+          missionLog.error(`voice: ${err.message}`);
+          result = {
+            speech: 'I hit a snag processing that, sir — give it a few seconds and say it again.',
+            playerUrl: null,
+            playerCommand: null,
+            spotifyState: null,
+          };
+        }
         memory.addTurn('user', text);
         memory.addTurn('assistant', result.speech);
         extractInBackground(memory, text, result.speech);

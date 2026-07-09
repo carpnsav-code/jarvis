@@ -228,7 +228,7 @@ async function handleUtterance(text) {
     appendLog('jarvis', result.speech);
     await speak(result.speech);
   } catch {
-    appendLog('jarvis', '⚠️ Lost connection to the server — try again.');
+    appendLog('jarvis', '⚠️ Something went wrong on my end — say that again, sir.');
     setState(micMuted ? 'idle' : 'listening');
     resumeListening();
   }
