@@ -18,7 +18,7 @@ const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // Gemini's OpenAI-compatible endpoint (supports function calling) — a second,
 // independent free quota the agent rolls to when Groq is rate-limited.
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-const GEMINI_MODEL = () => process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const GEMINI_MODEL = () => process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 // Tool use benefits from the larger model; the fallback keeps working when the
 // big model is rate-limited (free-tier limits on 70b are tight).
 const AGENT_MODEL = 'llama-3.3-70b-versatile';

@@ -20,7 +20,7 @@ const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // Google Gemini's OpenAI-compatible endpoint — a second, independent free
 // quota (~1500 requests/day) the brain rolls over to when Groq is tapped out.
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-const GEMINI_DEFAULT_MODEL = 'gemini-2.5-flash';
+const GEMINI_DEFAULT_MODEL = 'gemini-3.1-flash-lite';
 // Default to Groq's fastest model for near-instant voice replies. Set
 // GROQ_MODEL=llama-3.3-70b-versatile if you want higher quality over speed.
 const DEFAULT_MODEL = 'llama-3.1-8b-instant';
