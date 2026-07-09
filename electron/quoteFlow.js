@@ -73,7 +73,7 @@ function parseTemplate(text) {
 }
 
 function parseContact(text) {
-  const t = String(text || '');
+  const t = String(text || '').replace(/[.?!,]+$/, '');
   let m =
     t.match(/\b(?:estimate|quote|proposal)\s+(?:to|for)\s+([a-z][a-z .'-]*[a-z])/i) ||
     t.match(/\bsend\s+([a-z][a-z .'-]*[a-z])\s+an?\s+(?:estimate|quote|proposal)/i) ||
@@ -84,7 +84,25 @@ function parseContact(text) {
     .split(/\b(?:for|at|with|of|and|square|sq|dollars?|per|a|flake|metallic|epoxy|stained|polished|grind|grit|marble|single|solid)\b/i)[0]
     .replace(/[.,]+$/, '')
     .trim();
+  // Reject command/filler words that leak in from phrasings like "want to send".
+  if (/^(?:send|sent|make|made|create|creating|do|get|give|write|draft|prepare|build|generate|quote|estimate|proposal|it|that|this|one|the|an?|customer|client|him|her|them|someone)$/i.test(name)) {
+    return undefined;
+  }
   return name && /[a-z]/i.test(name) ? name : undefined;
+}
+
+// When Jarvis has just asked "who is the estimate for?", the reply is usually a
+// bare name ("Danny Carpenter") or wrapped in filler ("it's for Danny
+// Carpenter", "the customer's name is Danny Carpenter") — none of which carry
+// the keywords parseContact needs. Pull the name out of the tail of the reply.
+function nameFromReply(text) {
+  let s = String(text || '').trim().replace(/[.?!,]+$/, '');
+  const m = s.match(/\b(?:is|it'?s|for|to|named|called)\s+([a-z][a-z .'-]*[a-z])$/i);
+  if (m) s = m[1];
+  s = s.trim();
+  if (!/^[a-z][a-z][a-z .'-]*$/i.test(s)) return undefined; // must look like a name, no digits
+  if (s.split(/\s+/).length > 5) return undefined; // too long to be a name
+  return s;
 }
 
 function parseQuoteFields(text) {
@@ -156,6 +174,11 @@ function advanceQuote(prev, text) {
   }
 
   Object.assign(s, parsed);
+  // A bare name answers the "who is it for?" question when no other field parsed.
+  if (s.awaiting === 'contactName' && !s.contactName && !hasNew) {
+    const nm = nameFromReply(text);
+    if (nm) s.contactName = nm;
+  }
   // A bare number answers whatever numeric field we just asked for.
   if (s.awaiting === 'squareFeet' && parsed.squareFeet === undefined) {
     const n = bareNumber(text);

@@ -53,6 +53,29 @@ test('flow asks for each missing field, never sends early', () => {
   assert.match(r.speech, /shall i send it/i);
 });
 
+test('a bare name (or filler-wrapped name) answers the who-is-it-for question', () => {
+  const variants = [
+    'Danny Carpenter',
+    "It's for Danny Carpenter.",
+    'The customer name is Danny Carpenter',
+    'send it to Danny Carpenter',
+  ];
+  for (const reply of variants) {
+    let r = advanceQuote(null, 'I want to send a quote');
+    assert.match(r.speech, /who is the estimate for/i);
+    r = advanceQuote(r.state, reply);
+    assert.equal(r.state.contactName, 'Danny Carpenter', `failed on: ${reply}`);
+    assert.match(r.speech, /which template/i, `should advance past name on: ${reply}`);
+  }
+});
+
+test('answering the name question with a template does not become the name', () => {
+  let r = advanceQuote(null, 'I want to send a quote');
+  r = advanceQuote(r.state, 'stained concrete'); // premature template answer
+  assert.notEqual(r.state.contactName, 'stained concrete');
+  assert.match(r.state.templateName, /stained/i);
+});
+
 test('even a fully specified request confirms before sending', () => {
   const r = advanceQuote(null, 'send a flake estimate to Sam for 400 square feet at 7 dollars a foot');
   assert.ok(!r.send, 'must not send on the first turn');
