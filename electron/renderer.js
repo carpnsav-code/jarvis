@@ -98,6 +98,22 @@ document.getElementById('spotify-auth').addEventListener('click', async () => {
 // speakers). Lower = easier to interrupt but quieter. Tune to taste.
 const DUCK_VOLUME = 0.5;
 let speakerMuted = false;
+
+// One reusable audio element, "primed" on the first tap so browsers (especially
+// iPhone) allow later programmatic playback. Without this, replies are silent.
+const player = new Audio();
+let audioPrimed = false;
+function primeAudio() {
+  if (audioPrimed) return;
+  audioPrimed = true;
+  try {
+    player.play().then(() => player.pause()).catch(() => {});
+    window.speechSynthesis && window.speechSynthesis.resume();
+  } catch {
+    /* ignore */
+  }
+}
+document.addEventListener('pointerdown', primeAudio, { once: true });
 let speaking = false;
 let currentAudio = null;
 let speechDone = null; // resolver for the in-flight speak()
@@ -196,16 +212,16 @@ async function speak(text) {
   if (audio) {
     await new Promise((resolve) => {
       speechDone = resolve;
-      const el = new Audio(audio);
-      el.volume = DUCK_VOLUME; // ducked so you can talk over him
-      currentAudio = el;
-      el.addEventListener('playing', () => showText(text), { once: true });
-      el.addEventListener('ended', () => {
+      player.src = audio;
+      player.volume = DUCK_VOLUME; // ducked so you can talk over him
+      currentAudio = player;
+      player.onplaying = () => showText(text);
+      player.onended = () => {
         speechDone = null;
         resolve();
-      }, { once: true });
-      el.play().catch(() => {
-        showText(text);
+      };
+      player.play().catch(() => {
+        appendLog('jarvis', '🔇 Tap the screen once to enable sound, then try again.');
         speechDone = null;
         resolve();
       });
@@ -347,11 +363,13 @@ let recorder = null;
 let recChunks = [];
 
 async function startRecording() {
+  primeAudio();
   stopSpeaking(); // pressing to talk interrupts him
   try {
     if (!mediaStream) mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch {
-    showText('Microphone blocked — allow mic access for this site.');
+    appendLog('jarvis', '🎤 I need microphone access — allow it for this site, then tap again.');
+    stopRecording();
     return;
   }
   recChunks = [];
