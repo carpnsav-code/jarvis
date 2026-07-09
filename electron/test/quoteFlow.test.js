@@ -21,6 +21,19 @@ test('parseQuoteFields pulls out name, template, sqft, and price', () => {
   assert.equal(f.pricePerSquareFoot, 3.5);
 });
 
+test('spelled-out numbers are understood (voice STT often returns words)', () => {
+  assert.deepEqual(parseQuoteFields('one square foot'), { squareFeet: 1 });
+  assert.equal(parseQuoteFields('five hundred square feet at 3 dollars a foot').squareFeet, 500);
+  assert.equal(parseQuoteFields('twelve hundred square feet').squareFeet, 1200);
+  // A bare spoken number answers the pending question.
+  let r = advanceQuote(null, 'send a stained estimate to Sam');
+  r = advanceQuote(r.state, 'five hundred'); // quantity, spoken
+  assert.match(r.speech, /price per square foot/i);
+  r = advanceQuote(r.state, 'three'); // price, spoken
+  assert.match(r.speech, /to confirm/i);
+  assert.match(r.speech, /500 square feet/);
+});
+
 test('price and square footage do not collide', () => {
   // "8 dollars per square foot" must be the price, not 8 sq ft; 600 is the area.
   const f = parseQuoteFields('600 square feet at 8 dollars per square foot');

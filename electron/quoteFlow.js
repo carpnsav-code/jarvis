@@ -40,13 +40,42 @@ function isCancel(text) {
   );
 }
 
+// Voice STT often returns spelled-out numbers ("one square foot", "five
+// hundred", "twelve hundred"). Convert runs of number words to digits before
+// any numeric parsing so both digit and spoken forms work.
+const NUM_WORDS = {
+  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+  ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+  seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50,
+  sixty: 60, seventy: 70, eighty: 80, ninety: 90, hundred: 100, thousand: 1000,
+};
+const NUM_WORD = 'zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand';
+const NUM_RUN = new RegExp(`\\b(?:${NUM_WORD})(?:[\\s-]+(?:and[\\s-]+)?(?:${NUM_WORD}))*\\b`, 'gi');
+
+function wordRunToNumber(phrase) {
+  let total = 0;
+  let current = 0;
+  for (const w of phrase.toLowerCase().split(/[\s-]+/)) {
+    if (w === 'and' || !w) continue;
+    const v = NUM_WORDS[w];
+    if (v === undefined) continue;
+    if (v === 100) current = (current || 1) * 100;
+    else if (v === 1000) { total += (current || 1) * 1000; current = 0; }
+    else current += v;
+  }
+  return total + current;
+}
+function digitizeNumberWords(text) {
+  return String(text || '').replace(NUM_RUN, (m) => String(wordRunToNumber(m)));
+}
+
 function bareNumber(text) {
-  const m = String(text || '').match(/(?:^|\s)(\d+(?:\.\d+)?)(?=\s|$|\.)/);
+  const m = digitizeNumberWords(text).match(/(?:^|\s)(\d+(?:\.\d+)?)(?=\s|$|\.)/);
   return m ? Number(m[1]) : undefined;
 }
 
 function parsePrice(text) {
-  const t = String(text || '');
+  const t = digitizeNumberWords(text);
   let m = t.match(/\$\s*(\d+(?:\.\d+)?)/); // $3.50
   if (m) return Number(m[1]);
   // "3.50 per square foot", "8 a foot", "7 per ft", "8 dollars per square foot"
@@ -59,7 +88,7 @@ function parsePrice(text) {
 
 function parseSquareFeet(text) {
   // Strip price phrases first so "per square foot" can't be read as an area.
-  const t = String(text || '')
+  const t = digitizeNumberWords(text)
     .replace(/\$\s*\d+(?:\.\d+)?/g, ' ')
     .replace(/(\d+(?:\.\d+)?)\s*(?:dollars?\s*)?(?:per|a|\/)\s*(?:square\s*)?(?:foot|ft)\b/gi, ' ')
     .replace(/(\d+(?:\.\d+)?)\s*dollars?\b/gi, ' ');
