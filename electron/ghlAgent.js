@@ -52,6 +52,64 @@ function toolsFor(text) {
   return TOOLS.filter((tool) => names.has(tool.function.name));
 }
 
+// --- Deterministic text-send fast path -------------------------------------------
+// "text harold saying we're on for friday" is too important to leave to the
+// model (rate limits / weak fallback models break multi-step tool chains), so
+// the common phrasings are parsed directly and executed with plain API calls.
+const TEXT_PATTERNS = [
+  // "send a text to harold saying hey" / "send a message to harold telling him …"
+  /\bsend\s+(?:a\s+)?(?:text|sms|message)\s+to\s+([a-z][a-z .'-]{0,40}?)\s+(?:saying|that says|telling (?:him|her|them)\s*(?:that)?|and (?:tell|say)\s*(?:him|her|them)?\s*(?:that)?|that)\s+(.+)/i,
+  // "text harold saying hey" / "text harold and tell him …" / "text harold that …"
+  /\btext\s+([a-z][a-z .'-]{0,40}?)\s+(?:saying|that says|telling (?:him|her|them)\s*(?:that)?|and (?:tell|say)\s*(?:him|her|them)?\s*(?:that)?|that)\s+(.+)/i,
+  // "send harold a text saying hey"
+  /\bsend\s+([a-z][a-z .'-]{0,40}?)\s+a\s+(?:text|sms|message)\s+(?:saying|that says)?\s*(.+)/i,
+  // typed: "text harold: hey"
+  /\btext\s+([a-z][a-z .'-]{0,40}?):\s*(.+)/i,
+];
+
+/** @returns {{name:string,message:string}|null} */
+function parseTextCommand(text) {
+  const t = String(text || '').trim();
+  for (const re of TEXT_PATTERNS) {
+    const m = t.match(re);
+    if (m && m[1].trim() && m[2].trim()) {
+      return { name: m[1].trim(), message: m[2].trim() };
+    }
+  }
+  return null;
+}
+
+/**
+ * Look the contact up by name and send the SMS — deterministically. The match
+ * must contain every word of the requested name, or nothing is sent.
+ * @returns {Promise<string>} spoken confirmation or a spoken failure reason
+ */
+async function runTextCommand(client, { name, message }) {
+  if (!client || !client.isConfigured()) {
+    return 'Your GoHighLevel account is not connected yet, sir.';
+  }
+  let contacts = [];
+  try {
+    const d = await client.listContacts({ query: name, limit: 10 });
+    contacts = d.contacts || [];
+  } catch (err) {
+    return `I couldn't search contacts, sir — ${String(err.message).slice(0, 90)}`;
+  }
+  const norm = (s) => String(s || '').toLowerCase();
+  const tokens = norm(name).split(/\s+/).filter(Boolean);
+  const displayName = (c) => c.contactName || `${c.firstName || ''} ${c.lastName || ''}`.trim() || c.email || 'contact';
+  const match = contacts.find((c) => tokens.every((tk) => norm(displayName(c)).includes(tk)));
+  if (!match) {
+    return `I couldn't find a contact matching "${name}", sir — no text sent.`;
+  }
+  try {
+    await client.sendMessage({ contactId: match.id, type: 'SMS', message });
+    return `Text sent to ${displayName(match)}, sir: "${message}"`;
+  } catch (err) {
+    return `GoHighLevel rejected the text to ${displayName(match)}, sir — ${String(err.message).slice(0, 100)}`;
+  }
+}
+
 // Does this utterance look like a CRM/GHL request?
 const GHL_INTENT =
   /\b(ghl|gohighlevel|high level|crm|contacts?|leads?|deals?|opportunit|pipeline|appointments?|my calendar)\b|\btext\s+\w+|\bsend (a |an )?(text|sms|message|email)\b/i;
@@ -191,4 +249,4 @@ async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT
   }
 }
 
-module.exports = { isGhlQuery, runGhlAgent, AGENT_MODEL, _resetModelBench, toolsFor };
+module.exports = { isGhlQuery, runGhlAgent, AGENT_MODEL, _resetModelBench, toolsFor, parseTextCommand, runTextCommand };

@@ -123,6 +123,8 @@
         background: var(--panel); border: 1px solid var(--cyan-dim); border-radius: 5px; cursor: pointer;
         text-transform: uppercase; transition: color .2s, box-shadow .2s, background .2s; }
       .btn:hover { color: var(--bg); background: var(--cyan); box-shadow: 0 0 22px var(--cyan); }
+      .btn.stop { background: rgba(255,43,43,0.18); border-color: var(--cyan); color: var(--cyan-bright); font-weight: 700; }
+      .stage { cursor: pointer; }
       /* Activation overlay — the single tap browsers require to unlock mic+audio */
       #activate {
         position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
@@ -201,7 +203,8 @@
       </div>
 
       <div class="bar">
-        <input id="utterance" placeholder="I'm always listening — just speak. Or type here." autofocus />
+        <input id="utterance" placeholder="I'm always listening — just speak. Tap ⏹ or the hologram to cut me off." autofocus />
+        <button class="btn stop" id="stop">⏹ Stop</button>
         <button class="btn" id="go">Send</button>
       </div>
     </div>

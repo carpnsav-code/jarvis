@@ -129,6 +129,7 @@ function toPlayableUrl(dataUri) {
 
 let speakerMuted = false;
 let speaking = false;
+let speechResolve = null; // lets the Stop button resolve an in-flight speak()
 
 function stopSpeaking() {
   try {
@@ -139,6 +140,19 @@ function stopSpeaking() {
   }
   if (window.speechSynthesis) window.speechSynthesis.cancel();
   speaking = false;
+  if (speechResolve) {
+    const r = speechResolve;
+    speechResolve = null;
+    r();
+  }
+}
+
+/** Manual interrupt: shut him up and go straight back to listening. */
+function interrupt() {
+  if (!speaking) return;
+  stopSpeaking();
+  setState(micMuted ? 'idle' : 'listening');
+  resumeListening();
 }
 
 function pickVoice() {
@@ -188,17 +202,23 @@ async function speak(text) {
     }
     if (speaking && audio) {
       await new Promise((resolve) => {
+        speechResolve = resolve;
         const src = toPlayableUrl(audio);
         player.src = src;
         player.volume = 1.0;
         player.onplaying = () => showText(text);
         player.onended = () => {
           if (src.startsWith('blob:')) URL.revokeObjectURL(src);
+          speechResolve = null;
           resolve();
         };
-        player.onerror = () => resolve();
+        player.onerror = () => {
+          speechResolve = null;
+          resolve();
+        };
         player.play().catch(() => {
           appendLog('jarvis', '🔇 Tap the screen once to enable sound.');
+          speechResolve = null;
           resolve();
         });
       });
@@ -237,6 +257,11 @@ document.getElementById('go').addEventListener('click', () => handleUtterance(in
 input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') handleUtterance(input.value);
 });
+
+// The Stop button — and tapping the hologram — cut him off instantly and put
+// him back into listening.
+document.getElementById('stop').addEventListener('click', interrupt);
+stage.addEventListener('pointerdown', () => interrupt());
 
 // --- Hands-free listening engine (WebAudio VAD + MediaRecorder + Whisper) --------
 const micBtn = document.getElementById('mic-toggle');

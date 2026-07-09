@@ -35,7 +35,7 @@ const outcome = require('./outcome');
 const { parseCreateCommand, createFile } = require('./fileCreation');
 const { parseProductivityCommand, resolveProductivity } = require('./productivity');
 const { GHLClient } = require('./ghlClient');
-const { isGhlQuery, runGhlAgent } = require('./ghlAgent');
+const { isGhlQuery, runGhlAgent, parseTextCommand, runTextCommand } = require('./ghlAgent');
 const {
   parseSpotifyCommand,
   runSpotifyCommand,
@@ -181,7 +181,13 @@ async function routeVoice(text) {
     return runCreateFile(create);
   }
 
-  // 3b. Live GoHighLevel operations.
+  // 3b. Texting a contact — deterministic fast path.
+  const textCmd = parseTextCommand(text);
+  if (textCmd && ghl.isConfigured()) {
+    return { speech: await runTextCommand(ghl, textCmd), handled: true };
+  }
+
+  // 3c. Live GoHighLevel operations.
   if (isGhlQuery(text) && ghl.isConfigured()) {
     return { speech: await runGhlAgent(text, { keys: loadGroqKeys(), client: ghl }), handled: true };
   }

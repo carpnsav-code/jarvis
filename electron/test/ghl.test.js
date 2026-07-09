@@ -4,7 +4,43 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { GHLClient, TOOLS } = require('../ghlClient');
-const { isGhlQuery, runGhlAgent, _resetModelBench } = require('../ghlAgent');
+const { isGhlQuery, runGhlAgent, _resetModelBench, parseTextCommand, runTextCommand } = require('../ghlAgent');
+
+test('parseTextCommand handles the common spoken phrasings', () => {
+  assert.deepEqual(parseTextCommand('text harold saying we are on for friday'), { name: 'harold', message: 'we are on for friday' });
+  assert.deepEqual(parseTextCommand('send a text to harold williams saying running 10 late'), { name: 'harold williams', message: 'running 10 late' });
+  assert.deepEqual(parseTextCommand('text harold and tell him the quote is ready'), { name: 'harold', message: 'the quote is ready' });
+  assert.deepEqual(parseTextCommand('send harold a text saying see you at 9'), { name: 'harold', message: 'see you at 9' });
+  assert.equal(parseTextCommand('what are my open deals'), null);
+});
+
+test('runTextCommand finds the contact by name and sends the SMS', async () => {
+  const rec = [];
+  const client = new GHLClient({
+    token: 't', locationId: 'l',
+    fetchImpl: stubFetch([
+      ['/contacts/', () => ok({ contacts: [{ id: 'c9', contactName: 'harold williams' }] })],
+      ['/conversations/messages', (u, o) => { rec.push(JSON.parse(o.body)); return ok({ ok: true }); }],
+    ]),
+  });
+  const speech = await runTextCommand(client, { name: 'harold', message: 'on my way' });
+  assert.match(speech, /Text sent to harold williams/);
+  assert.deepEqual(rec[0], { contactId: 'c9', type: 'SMS', message: 'on my way' });
+});
+
+test('runTextCommand refuses to send when no contact matches the name', async () => {
+  let sent = false;
+  const client = new GHLClient({
+    token: 't', locationId: 'l',
+    fetchImpl: stubFetch([
+      ['/contacts/', () => ok({ contacts: [{ id: 'x', contactName: 'someone else' }] })],
+      ['/conversations/messages', () => { sent = true; return ok({}); }],
+    ]),
+  });
+  const speech = await runTextCommand(client, { name: 'harold', message: 'hi' });
+  assert.match(speech, /couldn't find a contact.*no text sent/i);
+  assert.equal(sent, false);
+});
 
 function stubFetch(handlers, record = []) {
   return async (url, opts) => {

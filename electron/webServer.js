@@ -39,7 +39,7 @@ const { parseCreateCommand, createFile } = require('./fileCreation');
 const { parseProductivityCommand, resolveProductivity } = require('./productivity');
 const { loadKnowledgeFiles } = require('./knowledge');
 const { GHLClient } = require('./ghlClient');
-const { isGhlQuery, runGhlAgent } = require('./ghlAgent');
+const { isGhlQuery, runGhlAgent, parseTextCommand, runTextCommand } = require('./ghlAgent');
 const {
   parseSpotifyCommand,
   runSpotifyCommand,
@@ -229,6 +229,13 @@ async function routeVoice(text, pageOrigin = ORIGIN) {
   const create = parseCreateCommand(text);
   if (create) {
     out.speech = await runCreateFile(create);
+    return out;
+  }
+
+  // Texting a contact is deterministic — no AI in the loop, so it always works.
+  const textCmd = parseTextCommand(text);
+  if (textCmd && ghl.isConfigured()) {
+    out.speech = await runTextCommand(ghl, textCmd);
     return out;
   }
 
