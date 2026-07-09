@@ -238,16 +238,6 @@ const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecogni
 let recognition = null;
 let micMuted = false;
 
-// Wake word: Jarvis only listens/acts/stops when addressed by name, so
-// background noise and normal talking are ignored. After you say "Jarvis" with
-// no command, he opens a short window to catch your follow-up.
-const WAKE = /\b(jarvis|jervis|jarvus)\b/i;
-const AWAKE_WINDOW_MS = 8000;
-let awakeUntil = 0;
-function stripWake(text) {
-  return text.replace(WAKE, '').replace(/^[\s,.:;!?-]+/, '').trim();
-}
-
 function setListening(on) {
   const active = on && !micMuted;
   bar.classList.toggle('listening', active);
@@ -279,40 +269,17 @@ if (SpeechRecognition) {
     const transcript = result[0].transcript.trim();
     if (!transcript) return;
 
-    const hasWake = WAKE.test(transcript);
-    // "Pure echo" = every heard word is one Jarvis just said (his own voice
-    // bleeding into the mic). We don't want that to count as you speaking.
-    const heard = words(transcript);
-    const pureEcho = heard.length > 0 && heard.every((w) => lastSpokenWords.includes(w));
+    // Ignore his own voice bleeding into the mic; anything else is you.
+    if (isEcho(transcript)) return;
 
+    // You spoke → he stops talking immediately (natural barge-in, no wake word).
     if (speaking) {
-      // While he's talking, the ONLY thing that stops him is you saying his
-      // name. Interim results catch it mid-word, so the cutoff is instant.
-      if (hasWake && !pureEcho) {
-        stopSpeaking();
-        setState('listening');
-      } else {
-        return; // keep talking through everything else
-      }
-    } else {
-      // Not talking: react only if addressed by name (or the follow-up window),
-      // and ignore lingering echo of his own last line.
-      const addressed = hasWake || Date.now() < awakeUntil;
-      if (!addressed) return;
-      if (!hasWake && isEcho(transcript)) return;
+      stopSpeaking();
+      setState('listening');
     }
 
-    if (result.isFinal) {
-      const command = hasWake ? stripWake(transcript) : transcript.trim();
-      if (command) {
-        awakeUntil = 0;
-        handleUtterance(command);
-      } else {
-        // Just "Jarvis" on its own → acknowledge and open the follow-up window.
-        awakeUntil = Date.now() + AWAKE_WINDOW_MS;
-        speak('Yes, sir?');
-      }
-    }
+    // Process the full utterance as a normal conversational turn.
+    if (result.isFinal) handleUtterance(transcript);
   };
 
   try {
