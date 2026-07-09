@@ -30,18 +30,33 @@ function isGhlQuery(text) {
   return GHL_INTENT.test(String(text || ''));
 }
 
+// Models that hit a rate limit are benched (per model+key) so requests flow
+// straight to a model/key that still has quota instead of burning time on
+// doomed retries. A daily-cap 429 benches for 10 minutes; a per-minute 429
+// benches briefly.
+const modelBench = new Map(); // `${model}|${key}` -> epoch ms until usable
+function _resetModelBench() {
+  modelBench.clear();
+}
+function benchMs(errText) {
+  return /per day|TPD/i.test(errText) ? 10 * 60 * 1000 : 15 * 1000;
+}
+
 async function callGroq(messages, { keys, model, groqImpl }) {
   let lastErr = null;
-  // Resilience ladder: primary model ×2 passes (with a breather between, so a
-  // per-minute rate limit can clear), then one pass on the fallback model.
+  // Ladder: primary → fallback immediately (separate quota) → both again
+  // after a breather so per-minute limits can clear.
   const attempts = [
     { model, wait: 0 },
+    { model: FALLBACK_MODEL, wait: 0 },
     { model, wait: 1500 },
-    { model: FALLBACK_MODEL, wait: 800 },
+    { model: FALLBACK_MODEL, wait: 1200 },
   ];
   for (const attempt of attempts) {
+    const usable = keys.filter((k) => (modelBench.get(`${attempt.model}|${k}`) || 0) < Date.now());
+    if (!usable.length) continue;
     if (attempt.wait) await sleep(attempt.wait);
-    for (const key of keys) {
+    for (const key of usable) {
       try {
         const res = await groqImpl(GROQ_URL, {
           method: 'POST',
@@ -50,6 +65,15 @@ async function callGroq(messages, { keys, model, groqImpl }) {
         });
         if (res.status === 429 || res.status === 401 || res.status >= 500) {
           lastErr = new Error(`HTTP ${res.status}`);
+          if (res.status === 429) {
+            let errTxt = '';
+            try {
+              errTxt = await res.text();
+            } catch {
+              /* stub responses may lack text() */
+            }
+            modelBench.set(`${attempt.model}|${key}`, Date.now() + benchMs(errTxt));
+          }
           continue;
         }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -125,4 +149,4 @@ async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT
   }
 }
 
-module.exports = { isGhlQuery, runGhlAgent, AGENT_MODEL };
+module.exports = { isGhlQuery, runGhlAgent, AGENT_MODEL, _resetModelBench };

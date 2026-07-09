@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { GHLClient, TOOLS } = require('../ghlClient');
-const { isGhlQuery, runGhlAgent } = require('../ghlAgent');
+const { isGhlQuery, runGhlAgent, _resetModelBench } = require('../ghlAgent');
 
 function stubFetch(handlers, record = []) {
   return async (url, opts) => {
@@ -63,11 +63,13 @@ test('isGhlQuery detects CRM intent', () => {
 
 test('runGhlAgent says not connected without a token', async () => {
   const client = new GHLClient({ token: '', locationId: '' });
+  _resetModelBench();
   const speech = await runGhlAgent('open deals', { keys: ['k'], client });
   assert.match(speech, /not connected/i);
 });
 
 test('runGhlAgent survives a rate limit: 429 first, succeeds on retry', async () => {
+  _resetModelBench();
   const client = new GHLClient({ token: 't', locationId: 'l', fetchImpl: async () => ok({}) });
   let calls = 0;
   const groqImpl = async () => {
@@ -81,6 +83,7 @@ test('runGhlAgent survives a rate limit: 429 first, succeeds on retry', async ()
 });
 
 test('runGhlAgent never throws — total AI failure becomes a spoken reply', async () => {
+  _resetModelBench();
   const client = new GHLClient({ token: 't', locationId: 'l', fetchImpl: async () => ok({}) });
   const groqImpl = async () => ({ ok: false, status: 429, json: async () => ({}) });
   const speech = await runGhlAgent('list my deals', { keys: ['k'], client, groqImpl });
@@ -88,6 +91,7 @@ test('runGhlAgent never throws — total AI failure becomes a spoken reply', asy
 });
 
 test('runGhlAgent runs a tool-calling loop and returns the spoken answer', async () => {
+  _resetModelBench();
   const client = new GHLClient({
     token: 't', locationId: 'l',
     fetchImpl: stubFetch([['/opportunities/search', () => ok({ opportunities: [{ name: 'Acme', monetaryValue: 5000 }] })]]),
