@@ -241,6 +241,7 @@ if (!gotLock) {
     // every reply's system prompt.
     brain = new GroqBrain({
       keys: loadGroqKeys(),
+      model: process.env.GROQ_MODEL,
       personality: process.env.GROQ_PERSONALITY,
       factsProvider: () => (memory ? memory.factsContext() : ''),
     });

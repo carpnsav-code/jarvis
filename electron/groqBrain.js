@@ -17,7 +17,9 @@
  */
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const DEFAULT_MODEL = 'llama3-70b-8192';
+// The guide's llama3-70b-8192 was decommissioned by Groq; this is a current,
+// high-quality replacement. Override with GROQ_MODEL if needed.
+const DEFAULT_MODEL = 'llama-3.3-70b-versatile';
 const DEFAULT_PERSONALITY =
   'You are Jarvis, a desktop AI voice assistant. You are concise, capable, and ' +
   'a little dry. The user is speaking and hearing your replies, so answer for ' +
