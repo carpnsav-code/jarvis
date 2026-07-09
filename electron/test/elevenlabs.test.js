@@ -20,7 +20,7 @@ test('synthesize uses the default JARVIS voice when none is set', async () => {
       return { ok: true, arrayBuffer: async () => new TextEncoder().encode('X').buffer };
     },
   });
-  assert.ok(calledUrl.includes('onwK4e9ZLuTAKqWW03F9'));
+  assert.ok(calledUrl.includes('p0mmJhGyrX5fwKdQI3xx'));
 });
 
 test('buildTtsRequest targets the voice and sends the api key header', () => {

@@ -13,9 +13,8 @@
 
 const ELEVEN_BASE = 'https://api.elevenlabs.io/v1/text-to-speech';
 const DEFAULT_MODEL = 'eleven_turbo_v2_5';
-// A deep, composed British male voice ("Daniel") — the closest premade match to
-// the JARVIS butler tone, so only an API key is needed to get the real voice.
-const DEFAULT_VOICE_ID = 'onwK4e9ZLuTAKqWW03F9';
+// The chosen JARVIS voice. Override with ELEVENLABS_VOICE_ID in .env.
+const DEFAULT_VOICE_ID = 'p0mmJhGyrX5fwKdQI3xx';
 
 function voiceId(env = process.env) {
   return env.ELEVENLABS_VOICE_ID || DEFAULT_VOICE_ID;
