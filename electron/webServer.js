@@ -48,7 +48,7 @@ const {
 const PORT = Number(process.env.JARVIS_PORT || 8800);
 const HOST = '127.0.0.1';
 const ORIGIN = `http://${HOST}:${PORT}`;
-const GREETING = process.env.JARVIS_GREETING || 'JARVIS online. Say my name whenever you need me, sir.';
+const GREETING = process.env.JARVIS_GREETING || 'Systems online. Say the word whenever you need me, sir.';
 
 // --- State ----------------------------------------------------------------------
 let apps = [];

@@ -51,7 +51,7 @@ let memory = null;
 let spotify = null;
 let brain = null;
 
-const GREETING = process.env.JARVIS_GREETING || 'JARVIS online. Say my name whenever you need me, sir.';
+const GREETING = process.env.JARVIS_GREETING || 'Systems online. Say the word whenever you need me, sir.';
 
 function createWindow() {
   win = new BrowserWindow({

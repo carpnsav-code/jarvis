@@ -278,21 +278,32 @@ if (SpeechRecognition) {
     const result = event.results[event.results.length - 1];
     const transcript = result[0].transcript.trim();
     if (!transcript) return;
-    if (isEcho(transcript)) return; // his own voice — never react to it
 
-    // Only react if addressed by name (or inside the short follow-up window).
-    const addressed = WAKE.test(transcript) || Date.now() < awakeUntil;
-    if (!addressed) return; // background noise / not talking to him → ignore, keep going
+    const hasWake = WAKE.test(transcript);
+    // "Pure echo" = every heard word is one Jarvis just said (his own voice
+    // bleeding into the mic). We don't want that to count as you speaking.
+    const heard = words(transcript);
+    const pureEcho = heard.length > 0 && heard.every((w) => lastSpokenWords.includes(w));
 
-    // He's being spoken to → stop talking and pay attention (this is the only
-    // thing that interrupts him mid-sentence).
     if (speaking) {
-      stopSpeaking();
-      setState('listening');
+      // While he's talking, the ONLY thing that stops him is you saying his
+      // name. Interim results catch it mid-word, so the cutoff is instant.
+      if (hasWake && !pureEcho) {
+        stopSpeaking();
+        setState('listening');
+      } else {
+        return; // keep talking through everything else
+      }
+    } else {
+      // Not talking: react only if addressed by name (or the follow-up window),
+      // and ignore lingering echo of his own last line.
+      const addressed = hasWake || Date.now() < awakeUntil;
+      if (!addressed) return;
+      if (!hasWake && isEcho(transcript)) return;
     }
 
     if (result.isFinal) {
-      const command = WAKE.test(transcript) ? stripWake(transcript) : transcript.trim();
+      const command = hasWake ? stripWake(transcript) : transcript.trim();
       if (command) {
         awakeUntil = 0;
         handleUtterance(command);
