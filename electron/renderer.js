@@ -286,8 +286,8 @@ let recStarted = 0;
 let noiseFloor = 0.01;
 
 const MIN_SPEECH_MS = 300; // shorter = a cough/blip, ignored
-const END_SILENCE_MS = 1100; // pause length that ends your turn
-const MAX_UTTER_MS = 15000; // hard cap per turn
+const END_SILENCE_MS = 1500; // a full breath of silence before he takes the turn
+const MAX_UTTER_MS = 30000; // hard cap per turn (long instructions fit)
 const RECYCLE_MS = 20000; // restart an idle recorder so blobs stay small
 
 function pickRecorderMime() {
@@ -391,9 +391,13 @@ setInterval(() => {
   if (!engineOn || suspended || micMuted || !analyser) return;
   if (!recorder || recorder.state !== 'recording') return;
   const level = rms();
-  // Slow-adapting noise floor so it works in quiet rooms and loud ones.
-  noiseFloor = noiseFloor * 0.995 + level * 0.005;
-  const threshold = Math.max(0.02, noiseFloor * 3);
+  // Adapt the noise floor ONLY while idle — adapting during speech slowly
+  // learns your voice as "background" and starts cutting you off mid-sentence.
+  if (!speechSeen) noiseFloor = noiseFloor * 0.995 + level * 0.005;
+  const startThreshold = Math.max(0.02, noiseFloor * 3);
+  // Hysteresis: once you're talking, a much lower bar keeps counting as speech,
+  // so quiet words and natural dips between words aren't mistaken for silence.
+  const threshold = speechSeen ? startThreshold * 0.5 : startThreshold;
   const now = Date.now();
 
   if (level > threshold) {
