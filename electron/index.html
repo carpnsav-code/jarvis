@@ -123,7 +123,25 @@
         background: var(--panel); border: 1px solid var(--cyan-dim); border-radius: 5px; cursor: pointer;
         text-transform: uppercase; transition: color .2s, box-shadow .2s, background .2s; }
       .btn:hover { color: var(--bg); background: var(--cyan); box-shadow: 0 0 22px var(--cyan); }
-      #talk.recording { background: var(--cyan); color: var(--bg); box-shadow: 0 0 26px var(--cyan); }
+      /* Activation overlay — the single tap browsers require to unlock mic+audio */
+      #activate {
+        position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
+        background: rgba(4, 1, 2, 0.82); backdrop-filter: blur(6px);
+        cursor: pointer; transition: opacity .5s ease;
+      }
+      #activate.hide { opacity: 0; pointer-events: none; }
+      #activate .ring-btn {
+        width: 190px; height: 190px; border-radius: 50%;
+        display: grid; place-items: center; text-align: center;
+        border: 2px solid var(--cyan); color: var(--cyan-bright);
+        font: 13px/1.6 var(--mono); letter-spacing: 3px; text-transform: uppercase;
+        box-shadow: 0 0 44px var(--cyan-dim), inset 0 0 30px rgba(255,43,43,0.15);
+        animation: actPulse 2s ease-in-out infinite;
+      }
+      @keyframes actPulse {
+        0%,100% { transform: scale(1); box-shadow: 0 0 34px var(--cyan-dim); }
+        50% { transform: scale(1.05); box-shadow: 0 0 60px var(--cyan); }
+      }
 
       ::-webkit-scrollbar { width: 6px; }
       ::-webkit-scrollbar-thumb { background: var(--cyan-dim); border-radius: 6px; }
@@ -144,6 +162,7 @@
   </head>
   <body>
     <canvas id="holo"></canvas>
+    <div id="activate"><div class="ring-btn">Tap to<br />activate<br />JARVIS</div></div>
     <div class="fx"></div>
     <div class="hud"><span class="bl"></span><span class="br"></span></div>
 
@@ -182,8 +201,7 @@
       </div>
 
       <div class="bar">
-        <input id="utterance" placeholder="Just talk when I'm quiet — say “Jarvis” to cut me off while I'm speaking" autofocus />
-        <button class="btn" id="talk">🎤 Start talking</button>
+        <input id="utterance" placeholder="I'm always listening — just speak. Or type here." autofocus />
         <button class="btn" id="go">Send</button>
       </div>
     </div>

@@ -1,15 +1,18 @@
 'use strict';
 
 /**
- * Renderer: the voice loop with hard barge-in + the holographic UI hooks.
+ * Renderer: a hands-free conversation loop that works in EVERY browser
+ * (Chrome, Safari, iPhone) — no Web Speech API dependency, no push-to-talk.
  *
- * Voice input — always-on Web Speech recognition with interim results. The
- * instant you start speaking while Jarvis is talking, he stops (barge-in). A
- * self-echo filter keeps his own voice (picked up by the mic) from either
- * barging in on himself or being sent back as a command.
+ * One tap on the activation overlay (browsers require a single gesture to
+ * unlock the mic + audio), then it's a natural loop:
  *
- * Voice output — ElevenLabs audio when the server provides it, else the Web
- * Speech voice. Playback is interruptible: barge-in cancels it immediately.
+ *   listen → you speak (a WebAudio level meter detects it) → you pause →
+ *   the recording goes to the server (Groq Whisper) → the brain answers →
+ *   the reply plays → listen again.
+ *
+ * While Jarvis is speaking the mic is suspended, so he never hears himself —
+ * that's what makes the loop stable at any volume.
  */
 
 // --- UI state -------------------------------------------------------------------
@@ -18,20 +21,20 @@ const stateLabel = document.getElementById('state-label');
 const out = document.getElementById('out');
 const log = document.getElementById('log');
 const input = document.getElementById('utterance');
+const overlay = document.getElementById('activate');
 
 const STATE_LABELS = { idle: 'Standby', listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking' };
 function setState(state) {
   stage.dataset.state = state;
-  stateLabel.textContent = STATE_LABELS[state] || 'Standby';
+  if (stateLabel) stateLabel.textContent = STATE_LABELS[state] || 'Standby';
 }
 function showText(text) {
-  out.textContent = text;
+  if (out) out.textContent = text;
 }
 function appendLog(role, text) {
   const entry = document.createElement('div');
   entry.className = `entry ${role}`;
-  const tag = role === 'you' ? 'You' : 'Jarvis';
-  entry.innerHTML = `<b>${tag}</b><span></span>`;
+  entry.innerHTML = `<b>${role === 'you' ? 'You' : 'Jarvis'}</b><span></span>`;
   entry.querySelector('span').textContent = text;
   log.appendChild(entry);
   log.scrollTop = log.scrollHeight;
@@ -51,9 +54,6 @@ function postToPlayer(message) {
   if (!iframe.contentWindow) return;
   iframe.contentWindow.postMessage(JSON.stringify(message), EMBED_ORIGIN);
 }
-function flushPlayer() {
-  while (pendingPlayer.length) postToPlayer(pendingPlayer.shift());
-}
 window.jarvis.onPlayerLoad((url) => {
   playerReady = false;
   iframe.src = url;
@@ -62,7 +62,7 @@ iframe.addEventListener('load', () => {
   if (!iframe.src) return;
   setTimeout(() => {
     playerReady = true;
-    flushPlayer();
+    while (pendingPlayer.length) postToPlayer(pendingPlayer.shift());
   }, COMMAND_DELAY_MS);
 });
 window.jarvis.onPlayerCommand((message) => {
@@ -78,30 +78,20 @@ function renderNowPlaying(state) {
     return;
   }
   const artists = (state.artists || []).join(', ');
-  const icon = state.playing ? '▶' : '⏸';
   nowPlaying.dataset.on = '1';
   nowPlaying.textContent =
-    `${icon} ${state.track}${artists ? ' — ' + artists : ''}` +
+    `${state.playing ? '▶' : '⏸'} ${state.track}${artists ? ' — ' + artists : ''}` +
     (state.volume != null ? `  ·  vol ${state.volume}%` : '');
 }
 window.jarvis.onSpotifyState(renderNowPlaying);
 document.getElementById('spotify-auth').addEventListener('click', async () => {
-  showText('Opening Spotify authorization…');
+  appendLog('jarvis', 'Opening Spotify authorization…');
   const res = await window.jarvis.spotifyAuthorize();
   if (res.ok) renderNowPlaying(await window.jarvis.spotifyState());
-  else showText(res.error || 'Spotify authorization failed.');
+  else appendLog('jarvis', res.error || 'Spotify authorization failed.');
 });
 
-// --- Voice output (interruptible) ----------------------------------------------
-// Auto-duck: he speaks at a reduced volume so the mic isn't saturated by his own
-// voice and can pick up you talking over him (enabling reliable barge-in on
-// speakers). Lower = easier to interrupt but quieter. Tune to taste.
-const DUCK_VOLUME = 0.5;
-let speakerMuted = false;
-
-// One reusable audio element, "primed" on the first tap by actually playing a
-// silent WAV — the reliable unlock so browsers (especially iPhone Safari) allow
-// later programmatic playback. Without this, replies are silent.
+// --- Voice output ---------------------------------------------------------------
 const SILENT_WAV =
   'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 const player = new Audio();
@@ -112,9 +102,9 @@ async function primeAudio() {
     player.src = SILENT_WAV;
     await player.play();
     player.pause();
-    audioPrimed = true; // only mark primed once a real play succeeded
+    audioPrimed = true;
   } catch {
-    /* no gesture yet — will retry on the next tap */
+    /* retried on the next gesture */
   }
   try {
     if (window.speechSynthesis) window.speechSynthesis.resume();
@@ -122,10 +112,8 @@ async function primeAudio() {
     /* ignore */
   }
 }
-// Not {once:true}: if the first attempt fails we retry on every tap until it works.
 document.addEventListener('pointerdown', () => primeAudio(), { capture: true });
 
-// Data-URI audio can be flaky on Safari; convert to a blob URL for playback.
 function toPlayableUrl(dataUri) {
   try {
     const [meta, b64] = dataUri.split(',');
@@ -138,47 +126,30 @@ function toPlayableUrl(dataUri) {
     return dataUri;
   }
 }
+
+let speakerMuted = false;
 let speaking = false;
-let currentAudio = null;
-let speechDone = null; // resolver for the in-flight speak()
-let lastSpokenWords = []; // for the echo filter
-let echoGuardUntil = 0;
-let cooldownUntil = 0; // just after he speaks: ignore his own echo tail
 
-function words(s) {
-  return String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
-}
-
-/** Is this transcript most likely Jarvis's own voice echoing back? */
-function isEcho(transcript) {
-  if (!speaking && Date.now() > echoGuardUntil) return false;
-  const t = words(transcript);
-  if (!t.length || !lastSpokenWords.length) return false;
-  const spoken = new Set(lastSpokenWords);
-  const overlap = t.filter((w) => spoken.has(w)).length / t.length;
-  return overlap >= 0.5;
-}
-
-/** Stop any current speech immediately (barge-in / new turn). */
 function stopSpeaking() {
-  if (currentAudio) {
-    try {
-      currentAudio.pause();
-      currentAudio.currentTime = 0;
-    } catch {
-      /* ignore */
-    }
-    currentAudio = null;
+  try {
+    player.pause();
+    player.currentTime = 0;
+  } catch {
+    /* ignore */
   }
-  window.speechSynthesis.cancel();
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
   speaking = false;
-  if (speechDone) {
-    const r = speechDone;
-    speechDone = null;
-    r();
-  }
 }
 
+function pickVoice() {
+  const voices = window.speechSynthesis.getVoices();
+  return (
+    voices.find((v) => /(daniel|george|arthur|oliver)/i.test(v.name)) ||
+    voices.find((v) => /en-GB/i.test(v.lang)) ||
+    voices.find((v) => /en/i.test(v.lang)) ||
+    voices[0]
+  );
+}
 function speakWebSpeech(text) {
   return new Promise((resolve) => {
     const sentences = text.match(/[^.!?]+[.!?]*/g) || [text];
@@ -188,79 +159,61 @@ function speakWebSpeech(text) {
       const u = new SpeechSynthesisUtterance(sentences[i].trim());
       const v = pickVoice();
       if (v) u.voice = v;
-      u.rate = 0.9;
-      u.pitch = 0.7;
-      u.volume = DUCK_VOLUME; // stay quiet enough to be talked over
+      u.rate = 0.95;
+      u.pitch = 0.75;
       i += 1;
-      u.onend = () => setTimeout(next, 200);
-      u.onerror = () => setTimeout(next, 200);
+      u.onend = () => setTimeout(next, 180);
+      u.onerror = () => setTimeout(next, 180);
       window.speechSynthesis.speak(u);
     };
     next();
   });
 }
-function pickVoice() {
-  const voices = window.speechSynthesis.getVoices();
-  return (
-    voices.find((v) => /(daniel|george|arthur|oliver)/i.test(v.name)) ||
-    voices.find((v) => /en-GB/i.test(v.lang)) ||
-    voices.find((v) => /male/i.test(v.name) && /en/i.test(v.lang)) ||
-    voices.find((v) => /en/i.test(v.lang)) ||
-    voices[0]
-  );
-}
 
+/** Speak a reply. The mic is suspended for the duration so he never hears
+ *  himself; listening resumes automatically right after. */
 async function speak(text) {
   if (!text) return;
   stopSpeaking();
-  setState('speaking');
-  lastSpokenWords = words(text);
+  suspendListening();
   speaking = true;
+  setState('speaking');
 
-  if (speakerMuted) {
-    showText(text);
-    speaking = false;
-    echoGuardUntil = Date.now() + 1200;
-    cooldownUntil = Date.now() + 700;
-    return;
-  }
-
-  let audio = null;
-  try {
-    ({ audio } = await window.jarvis.tts(text));
-  } catch {
-    audio = null;
-  }
-  if (!speaking) return; // barged-in while fetching audio
-
-  if (audio) {
-    await new Promise((resolve) => {
-      speechDone = resolve;
-      const src = toPlayableUrl(audio);
-      player.src = src;
-      player.volume = DUCK_VOLUME; // ducked so you can talk over him
-      currentAudio = player;
-      player.onplaying = () => showText(text);
-      player.onended = () => {
-        if (src.startsWith('blob:')) URL.revokeObjectURL(src);
-        speechDone = null;
-        resolve();
-      };
-      player.play().catch(() => {
-        appendLog('jarvis', '🔇 Tap the screen once to enable sound, then ask again.');
-        speechDone = null;
-        resolve();
+  if (!speakerMuted) {
+    let audio = null;
+    try {
+      ({ audio } = await window.jarvis.tts(text));
+    } catch {
+      audio = null;
+    }
+    if (speaking && audio) {
+      await new Promise((resolve) => {
+        const src = toPlayableUrl(audio);
+        player.src = src;
+        player.volume = 1.0;
+        player.onplaying = () => showText(text);
+        player.onended = () => {
+          if (src.startsWith('blob:')) URL.revokeObjectURL(src);
+          resolve();
+        };
+        player.onerror = () => resolve();
+        player.play().catch(() => {
+          appendLog('jarvis', '🔇 Tap the screen once to enable sound.');
+          resolve();
+        });
       });
-    });
+    } else if (speaking) {
+      showText(text);
+      await speakWebSpeech(text);
+    }
   } else {
     showText(text);
-    await speakWebSpeech(text);
   }
 
   speaking = false;
-  currentAudio = null;
-  echoGuardUntil = Date.now() + 1200;
-  cooldownUntil = Date.now() + 700; // ignore his own trailing echo
+  setState(micMuted ? 'idle' : 'listening');
+  // Small pause so the audio tail in the room isn't picked up as speech.
+  setTimeout(resumeListening, 350);
 }
 
 // --- Send an utterance ----------------------------------------------------------
@@ -270,212 +223,240 @@ async function handleUtterance(text) {
   input.value = '';
   appendLog('you', trimmed);
   setState('thinking');
-  const result = await window.jarvis.sendVoice(trimmed);
-  appendLog('jarvis', result.speech);
-  await speak(result.speech);
-  setState(micMuted ? 'idle' : 'listening');
+  try {
+    const result = await window.jarvis.sendVoice(trimmed);
+    appendLog('jarvis', result.speech);
+    await speak(result.speech);
+  } catch {
+    appendLog('jarvis', '⚠️ Lost connection to the server — try again.');
+    setState(micMuted ? 'idle' : 'listening');
+    resumeListening();
+  }
 }
-
 document.getElementById('go').addEventListener('click', () => handleUtterance(input.value));
 input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') handleUtterance(input.value);
 });
 
-// --- Voice input: always-on recognition with barge-in --------------------------
+// --- Hands-free listening engine (WebAudio VAD + MediaRecorder + Whisper) --------
 const micBtn = document.getElementById('mic-toggle');
 const speakerBtn = document.getElementById('speaker-toggle');
 const bar = document.querySelector('.bar');
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recognition = null;
-let micMuted = false;
 
-// While he's talking, the ONLY thing that stops him is his name — so loud
-// background noise or his own voice can't cut him off. When he's idle you just
-// talk to him normally (no wake word needed).
-const WAKE = /\b(jarvis|jervis|jarvus|jarvods)\b/i;
-function stripWake(text) {
-  return text.replace(WAKE, '').replace(/^[\s,.:;!?-]+/, '').trim();
-}
-
-function setListening(on) {
-  const active = on && !micMuted;
-  bar.classList.toggle('listening', active);
-  if (active && stage.dataset.state === 'idle') setState('listening');
-  if (!active && stage.dataset.state === 'listening') setState('idle');
-}
-
-let recognizing = false;
-function startRec() {
-  if (recognizing || micMuted || !recognition) return;
-  try {
-    recognition.start();
-  } catch {
-    /* already started — fine */
-  }
-}
-
-if (SpeechRecognition) {
-  recognition = new SpeechRecognition();
-  recognition.continuous = true;
-  recognition.interimResults = true; // catch the start of your speech
-  recognition.lang = 'en-US';
-
-  recognition.onstart = () => {
-    recognizing = true;
-    setListening(true);
-  };
-  recognition.onend = () => {
-    recognizing = false;
-    setListening(false);
-    if (!micMuted) startRec(); // Chrome stops it periodically — bring it back
-  };
-  recognition.onerror = () => {
-    recognizing = false; // 'no-speech'/'aborted' are normal; watchdog restarts
-  };
-
-  recognition.onresult = (event) => {
-    const result = event.results[event.results.length - 1];
-    const transcript = result[0].transcript.trim();
-    if (!transcript) return;
-
-    const hasWake = WAKE.test(transcript);
-    // While he's talking, or in the brief cooldown right after, ignore
-    // everything except his name — this stops his own voice/echo from ever
-    // triggering a turn (the thing that breaks back-and-forth).
-    const suppressed = speaking || Date.now() < cooldownUntil;
-    if (suppressed && !hasWake) return;
-    if (!suppressed && !hasWake && isEcho(transcript)) return;
-
-    if (speaking) {
-      stopSpeaking();
-      setState('listening');
-    }
-
-    if (result.isFinal) {
-      const command = hasWake ? stripWake(transcript) : transcript.trim();
-      if (command) handleUtterance(command);
-    }
-  };
-
-  startRec();
-  // Watchdog: if recognition ever dies silently, restart it.
-  setInterval(() => {
-    if (!micMuted && !recognizing) startRec();
-  }, 1500);
-} else {
-  setChip(micBtn, false, 'Mic N/A');
-  micBtn.style.pointerEvents = 'none';
-}
-
-micBtn.addEventListener('click', () => {
-  micMuted = !micMuted;
-  setChip(micBtn, !micMuted, micMuted ? 'Mic off' : 'Mic on');
-  setListening(!micMuted);
-  if (!recognition) return;
-  if (micMuted) recognition.stop();
-  else startRec();
-});
-
-speakerBtn.addEventListener('click', () => {
-  speakerMuted = !speakerMuted;
-  setChip(speakerBtn, !speakerMuted, speakerMuted ? 'Speaker off' : 'Speaker on');
-  if (speakerMuted) stopSpeaking();
-});
-
-// --- Hold-to-talk (works on phones incl. iPhone, via server-side Whisper) -------
-const talkBtn = document.getElementById('talk');
 let mediaStream = null;
+let audioCtx = null;
+let analyser = null;
+let timeData = null;
 let recorder = null;
 let recChunks = [];
+let engineOn = false; // mic initialised
+let suspended = true; // not currently capturing (while he speaks / thinks)
+let micMuted = false;
+let discardNext = false;
+
+let speechSeen = false;
+let speechStart = 0;
+let lastVoice = 0;
+let recStarted = 0;
+let noiseFloor = 0.01;
+
+const MIN_SPEECH_MS = 300; // shorter = a cough/blip, ignored
+const END_SILENCE_MS = 1100; // pause length that ends your turn
+const MAX_UTTER_MS = 15000; // hard cap per turn
+const RECYCLE_MS = 20000; // restart an idle recorder so blobs stay small
 
 function pickRecorderMime() {
   if (!window.MediaRecorder) return null;
   const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/mpeg'];
   if (MediaRecorder.isTypeSupported) {
-    for (const m of candidates) {
-      if (MediaRecorder.isTypeSupported(m)) return m;
-    }
+    for (const m of candidates) if (MediaRecorder.isTypeSupported(m)) return m;
   }
-  return ''; // let the browser pick its default
+  return '';
 }
 
-async function startRecording() {
-  primeAudio();
-  stopSpeaking(); // pressing to talk interrupts him
-  // Instant feedback the moment you tap — before the mic prompt resolves.
-  isRecording = true;
-  talkBtn.classList.add('recording');
-  talkBtn.textContent = '● Starting…';
-  setState('listening');
-
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
-    appendLog('jarvis', '⚠️ This browser cannot record audio. On iPhone use Safari; on desktop use Chrome — or type below.');
-    stopRecording();
-    return;
-  }
-  try {
-    if (!mediaStream) mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch {
-    appendLog('jarvis', '🎤 Microphone is blocked. Tap the lock/aA icon in the address bar → allow Microphone, then try again.');
-    stopRecording();
-    return;
-  }
+function startRecorder() {
+  if (!mediaStream || micMuted || !engineOn) return;
   recChunks = [];
   try {
     const mime = pickRecorderMime();
     recorder = mime ? new MediaRecorder(mediaStream, { mimeType: mime }) : new MediaRecorder(mediaStream);
   } catch (err) {
-    appendLog('jarvis', `⚠️ Recorder failed to start (${err.name || 'error'}). Try typing below instead.`);
-    stopRecording();
+    appendLog('jarvis', `⚠️ Recorder error (${err.name || 'unknown'}) — type below instead.`);
     return;
   }
   recorder.ondataavailable = (e) => {
     if (e.data && e.data.size) recChunks.push(e.data);
   };
-  recorder.onstop = async () => {
-    const blob = new Blob(recChunks, { type: recorder.mimeType || 'audio/webm' });
-    if (blob.size < 200) {
-      appendLog('jarvis', "I didn't catch any audio — hold the button and speak, then tap Stop.");
-      setState(micMuted ? 'idle' : 'listening');
+  recorder.onstop = () => {
+    const chunks = recChunks;
+    recChunks = [];
+    if (discardNext) {
+      discardNext = false;
+      maybeRestart();
       return;
     }
-    setState('thinking');
-    try {
-      const res = await fetch('/api/stt', { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob });
-      const { text } = await res.json();
-      if (text && text.trim()) handleUtterance(text.trim());
-      else {
-        appendLog('jarvis', "I couldn't make that out — try again a bit closer to the mic.");
-        setState(micMuted ? 'idle' : 'listening');
-      }
-    } catch {
-      appendLog('jarvis', '⚠️ Lost connection to the server — check the internet and try again.');
-      setState(micMuted ? 'idle' : 'listening');
-    }
+    processUtterance(new Blob(chunks, { type: recorder.mimeType || 'audio/webm' }));
   };
-  // Timeslice so iOS Safari actually flushes chunks while recording.
   recorder.start(250);
-  talkBtn.textContent = '■ Stop & send';
-  setState('listening');
+  recStarted = Date.now();
+  speechSeen = false;
+  suspended = false;
+  bar.classList.add('listening');
 }
-function stopRecording() {
-  isRecording = false;
-  talkBtn.classList.remove('recording');
-  talkBtn.textContent = '🎤 Start talking';
-  if (recorder && recorder.state !== 'inactive') recorder.stop();
-}
-// Tap to start listening (interrupts him if he's talking), tap again to send.
-let isRecording = false;
-talkBtn.addEventListener('click', () => {
-  if (isRecording) stopRecording();
-  else startRecording();
-});
 
-// --- Startup greeting -----------------------------------------------------------
-window.addEventListener('load', async () => {
-  window.speechSynthesis.getVoices();
+function maybeRestart() {
+  if (engineOn && !suspended && !micMuted && (!recorder || recorder.state === 'inactive')) startRecorder();
+}
+function suspendListening() {
+  suspended = true;
+  bar.classList.remove('listening');
+  speechSeen = false;
+  if (recorder && recorder.state !== 'inactive') {
+    discardNext = true; // whatever was in flight isn't a user turn
+    try {
+      recorder.stop();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+function resumeListening() {
+  if (!engineOn || micMuted) return;
+  suspended = false;
+  maybeRestart();
+  if (!speaking) setState('listening');
+}
+
+async function processUtterance(blob) {
+  suspended = true;
+  bar.classList.remove('listening');
+  if (blob.size < 1000) {
+    resumeListening();
+    return;
+  }
+  setState('thinking');
+  try {
+    const res = await fetch('/api/stt', { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob });
+    const { text } = await res.json();
+    if (text && text.trim()) {
+      await handleUtterance(text.trim()); // speak() resumes listening after
+    } else {
+      setState('listening');
+      resumeListening();
+    }
+  } catch {
+    appendLog('jarvis', '⚠️ Lost connection while transcribing — still listening.');
+    setState('listening');
+    resumeListening();
+  }
+}
+
+function rms() {
+  analyser.getByteTimeDomainData(timeData);
+  let sum = 0;
+  for (let i = 0; i < timeData.length; i++) {
+    const v = (timeData[i] - 128) / 128;
+    sum += v * v;
+  }
+  return Math.sqrt(sum / timeData.length);
+}
+
+// The heartbeat: watch the mic level, find the start and end of your speech.
+setInterval(() => {
+  if (!engineOn || suspended || micMuted || !analyser) return;
+  if (!recorder || recorder.state !== 'recording') return;
+  const level = rms();
+  // Slow-adapting noise floor so it works in quiet rooms and loud ones.
+  noiseFloor = noiseFloor * 0.995 + level * 0.005;
+  const threshold = Math.max(0.02, noiseFloor * 3);
+  const now = Date.now();
+
+  if (level > threshold) {
+    lastVoice = now;
+    if (!speechSeen) {
+      speechSeen = true;
+      speechStart = now;
+    }
+  }
+
+  if (speechSeen) {
+    const spokeLongEnough = lastVoice - speechStart >= MIN_SPEECH_MS;
+    if (now - lastVoice > END_SILENCE_MS || now - speechStart > MAX_UTTER_MS) {
+      if (!spokeLongEnough) discardNext = true; // just a blip
+      speechSeen = false;
+      try {
+        recorder.stop(); // → onstop → processUtterance / restart
+      } catch {
+        /* ignore */
+      }
+    }
+  } else if (now - recStarted > RECYCLE_MS) {
+    discardNext = true; // nothing said — restart to keep the blob small
+    try {
+      recorder.stop();
+    } catch {
+      /* ignore */
+    }
+  }
+}, 60);
+
+async function startEngine() {
+  if (engineOn) return true;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+    appendLog('jarvis', '⚠️ This browser cannot record audio — type below instead.');
+    return false;
+  }
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true },
+    });
+  } catch {
+    appendLog('jarvis', '🎤 Microphone is blocked. Tap the lock/aA icon in the address bar → allow Microphone → reload.');
+    return false;
+  }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  audioCtx = new AC();
+  try {
+    await audioCtx.resume();
+  } catch {
+    /* ignore */
+  }
+  const src = audioCtx.createMediaStreamSource(mediaStream);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 1024;
+  timeData = new Uint8Array(analyser.fftSize);
+  src.connect(analyser);
+  engineOn = true;
+  startRecorder();
+  setState('listening');
+  return true;
+}
+
+// --- Activation (the one tap browsers require) -----------------------------------
+async function activate() {
+  overlay.classList.add('hide');
+  await primeAudio();
+  const ok = await startEngine();
   const greeting = await window.jarvis.greeting();
-  appendLog('jarvis', greeting);
+  appendLog('jarvis', greeting + (ok ? '' : ' (Voice input unavailable — type below.)'));
   await speak(greeting);
-  setState(micMuted ? 'idle' : 'listening');
+}
+overlay.addEventListener('click', activate, { once: true });
+
+// --- Chips ------------------------------------------------------------------------
+micBtn.addEventListener('click', () => {
+  micMuted = !micMuted;
+  setChip(micBtn, !micMuted, micMuted ? 'Mic off' : 'Mic on');
+  if (micMuted) {
+    suspendListening();
+    setState('idle');
+  } else {
+    resumeListening();
+    setState('listening');
+  }
+});
+speakerBtn.addEventListener('click', () => {
+  speakerMuted = !speakerMuted;
+  setChip(speakerBtn, !speakerMuted, speakerMuted ? 'Speaker off' : 'Speaker on');
+  if (speakerMuted) stopSpeaking();
 });
