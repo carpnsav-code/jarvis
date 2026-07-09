@@ -122,9 +122,10 @@ async function resolveQuoteContact(name) {
 async function sendConfirmedQuote(fields) {
   try {
     const r = await ghl.sendQuote(fields);
+    const note = r.note ? ` Note added: "${r.note}".` : '';
     return (
       `Sent, sir. A ${r.template} estimate for ${r.contact}, ${r.squareFeet} square feet at ` +
-      `$${money(r.pricePerSquareFoot)} per square foot — $${money(r.total)} — by text and email.`
+      `$${money(r.pricePerSquareFoot)} per square foot — $${money(r.total)} — by text and email.${note}`
     );
   } catch (err) {
     return `I couldn't send that estimate, sir — ${String(err.message).slice(0, 120)}`;
@@ -135,20 +136,31 @@ async function sendConfirmedQuote(fields) {
 async function sendConfirmedInvoice(fields) {
   try {
     const r = await ghl.sendInvoice(fields);
+    const note = r.note ? ` Note added: "${r.note}".` : '';
     return (
       `Sent, sir. A ${r.template} invoice for ${r.contact}, ${r.quantity} square feet at ` +
-      `$${money(r.amount)} per square foot — $${money(r.total)}, due today — by text and email.`
+      `$${money(r.amount)} per square foot — $${money(r.total)}, due today — by text and email.${note}`
     );
   } catch (err) {
     return `I couldn't send that invoice, sir — ${String(err.message).slice(0, 120)}`;
   }
 }
 
+// Join names for a spoken "a, b, or c" list.
+function orList(items) {
+  if (items.length <= 1) return items.join('');
+  return `${items.slice(0, -1).join(', ')}, or ${items[items.length - 1]}`;
+}
+
 // Shared driver for the estimate/invoice collect-confirm-send flows. Verifies a
-// newly named contact exists before proceeding, then either sends or keeps the
-// conversation going. Returns { speech, state }.
-async function runDocTurn(advance, pending, text, sender) {
+// newly named contact exists AND resolves the template to a real, unambiguous
+// saved template (asking which one when a name like "polished" matches several)
+// before proceeding, then either sends or keeps the conversation going.
+async function runDocTurn(advance, pending, text, sender, kind) {
+  const doc = kind === 'invoice' ? 'invoice' : 'estimate';
   let r = advance(pending, text);
+
+  // 1) Verify the contact exists (must resolve before we touch the template).
   if (r.state && r.state.contactName && !r.state.contactResolved) {
     const attempted = r.state.contactName;
     const match = await resolveQuoteContact(attempted);
@@ -156,16 +168,46 @@ async function runDocTurn(advance, pending, text, sender) {
       r.state.contactResolved = true;
       r.state.contactId = match.id;
       r.state.contactName = match.displayName;
-      if (r.state.confirming) r = advance(r.state, ''); // refresh read-back with the real name
+      if (r.state.confirming) r = advance(r.state, '');
     } else {
       r.state.contactName = undefined;
       r.state.contactId = undefined;
       r.state.confirming = false;
       r.state.awaiting = 'contactName';
-      const doc = advance === advanceInvoice ? 'invoice' : 'estimate';
       r.speech = `I couldn't find anyone named ${attempted} in your contacts, sir. Who is the ${doc} for?`;
     }
   }
+
+  // 2) Resolve the template to exactly one saved template. If a name matches
+  //    several ("polished" -> 200/400/800 grit), ASK which — never guess.
+  if (r.state && r.state.templateName && !r.state.templateResolved && (!r.state.contactName || r.state.contactResolved)) {
+    const attempted = r.state.templateName;
+    let found = null;
+    try {
+      found = await ghl.findTemplates({ kind, name: attempted });
+    } catch {
+      found = null;
+    }
+    if (found && found.matches.length === 1) {
+      r.state.templateName = found.matches[0];
+      r.state.templateResolved = true;
+      if (r.state.confirming) r = advance(r.state, '');
+    } else if (found && found.matches.length > 1) {
+      r.state.templateName = undefined;
+      r.state.templateResolved = false;
+      r.state.confirming = false;
+      r.state.awaiting = 'templateName';
+      r.speech = `Which one, sir — ${orList(found.matches)}?`;
+    } else {
+      const opts = found && found.all && found.all.length ? ` The options are: ${orList(found.all)}.` : '';
+      r.state.templateName = undefined;
+      r.state.templateResolved = false;
+      r.state.confirming = false;
+      r.state.awaiting = 'templateName';
+      r.speech = `I couldn't find a template called ${attempted}, sir.${opts} Which template?`;
+    }
+  }
+
   if (r.send) return { speech: await sender(r.send), state: null };
   return { speech: r.speech, state: r.state };
 }
@@ -323,13 +365,13 @@ async function routeVoice(text, pageOrigin = ORIGIN) {
   // marking an opportunity won). An in-progress document captures every turn
   // until it's sent or cancelled.
   if (ghl.isConfigured() && (pendingInvoice || (!pendingQuote && isInvoiceStart(text)))) {
-    const { speech, state } = await runDocTurn(advanceInvoice, pendingInvoice, text, sendConfirmedInvoice);
+    const { speech, state } = await runDocTurn(advanceInvoice, pendingInvoice, text, sendConfirmedInvoice, 'invoice');
     pendingInvoice = state;
     out.speech = speech;
     return out;
   }
   if (ghl.isConfigured() && (pendingQuote || isQuoteStart(text))) {
-    const { speech, state } = await runDocTurn(advanceQuote, pendingQuote, text, sendConfirmedQuote);
+    const { speech, state } = await runDocTurn(advanceQuote, pendingQuote, text, sendConfirmedQuote, 'estimate');
     pendingQuote = state;
     out.speech = speech;
     return out;

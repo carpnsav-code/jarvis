@@ -240,6 +240,28 @@ test('agent rolls over to Gemini when Groq is fully rate-limited', async () => {
   assert.ok(urls.some((u) => u.includes('generativelanguage')));
 });
 
+test('findTemplates returns several matches for an ambiguous name (polished)', async () => {
+  const templates = {
+    data: [
+      { name: '200 Grit Polished Concrete System' },
+      { name: '400 Grit Polished Concrete System' },
+      { name: '800 Grit Polished Concrete System' },
+      { name: 'Polyaspartic Flake' },
+      { name: 'Marble Metallic' },
+    ],
+  };
+  const client = new GHLClient({
+    token: 't', locationId: 'l',
+    fetchImpl: async () => ({ ok: true, status: 200, text: async () => JSON.stringify(templates) }),
+  });
+  const polished = await client.findTemplates({ kind: 'invoice', name: 'polished' });
+  assert.equal(polished.matches.length, 3); // ambiguous -> the flow must ask which
+  const one = await client.findTemplates({ kind: 'invoice', name: '800 grit polished' });
+  assert.deepEqual(one.matches, ['800 Grit Polished Concrete System']);
+  const flake = await client.findTemplates({ kind: 'invoice', name: 'flake' });
+  assert.deepEqual(flake.matches, ['Polyaspartic Flake']);
+});
+
 test('mid-loop rollover to Gemini flattens tool history (no thought_signature 400)', async () => {
   _resetModelBench();
   const client = new GHLClient({

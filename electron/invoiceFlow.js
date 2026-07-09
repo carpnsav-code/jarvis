@@ -23,6 +23,7 @@ const {
   parseContact,
   nameFromReply,
   bareNumber,
+  extractNote,
 } = require('./quoteFlow');
 
 function isInvoiceStart(text) {
@@ -68,9 +69,10 @@ function questionFor(field) {
 
 function readback(s) {
   const total = Number(s.quantity) * Number(s.amount);
+  const note = s.note ? ` I'll add the note: "${s.note}".` : '';
   return (
     `To confirm, sir: a ${s.templateName} invoice for ${s.contactName}, ${s.quantity} square feet at ` +
-    `$${money(s.amount)} per square foot — that comes to $${money(total)}, due today. Shall I send it?`
+    `$${money(s.amount)} per square foot — that comes to $${money(total)}, due today.${note} Shall I send it?`
   );
 }
 
@@ -80,29 +82,31 @@ function readback(s) {
  */
 function advanceInvoice(prev, text) {
   const s = { ...(prev || {}) };
-  const parsed = parseInvoiceFields(text);
-  const hasNew = Object.keys(parsed).length > 0;
+  const { note, rest } = extractNote(text);
+  if (note) s.note = note;
+  const parsed = parseInvoiceFields(rest);
+  const hasFieldChange = Object.keys(parsed).length > 0;
 
-  if (isCancel(text) && !isConfirm(text) && !hasNew) {
+  if (isCancel(rest) && !isConfirm(text) && !hasFieldChange && !note) {
     return { state: null, speech: "No problem, sir — I won't send it." };
   }
 
-  if (s.confirming && isConfirm(text) && !hasNew) {
+  if (s.confirming && isConfirm(text) && !hasFieldChange) {
     const { confirming, awaiting, ...fields } = s;
     return { state: null, send: fields };
   }
 
   Object.assign(s, parsed);
-  if (s.awaiting === 'contactName' && !s.contactName && !hasNew) {
-    const nm = nameFromReply(text);
+  if (s.awaiting === 'contactName' && !s.contactName && !hasFieldChange && !note) {
+    const nm = nameFromReply(rest);
     if (nm) s.contactName = nm;
   }
   if (s.awaiting === 'quantity' && parsed.quantity === undefined) {
-    const n = bareNumber(text);
+    const n = bareNumber(rest);
     if (n !== undefined) s.quantity = n;
   }
   if (s.awaiting === 'amount' && parsed.amount === undefined) {
-    const n = bareNumber(text);
+    const n = bareNumber(rest);
     if (n !== undefined) s.amount = n;
   }
 

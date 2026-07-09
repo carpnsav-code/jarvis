@@ -175,11 +175,32 @@ function money(n) {
   return v.toLocaleString('en-US', { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 });
 }
 
+// Pull an explicit note/memo out of "add a note that …", "leave a note on the
+// invoice saying …", "note that …". Returns the note plus the text with the note
+// directive removed, so numbers inside the note ("payment 1 of 3") are never
+// mistaken for a quantity or a price.
+function extractNote(text) {
+  const t = String(text || '');
+  const m =
+    t.match(
+      /\b(?:(?:also\s+)?(?:make sure\s+(?:you\s+)?)?(?:add|put|leave|include|attach))\s+(?:a\s+|the\s+)?note\b(?:\s+(?:on|to)\s+(?:the\s+)?(?:invoice|estimate|quote|it|there|this))?(?:\s+(?:that|saying|which says|reading|:))?\s*(.+)$/i
+    ) || t.match(/\bnote\s+(?:that|saying|which says|reading|:)\s*(.+)$/i);
+  if (!m || !m[1].trim()) return { note: undefined, rest: t };
+  const note = m[1].trim().replace(/^["']|["']$/g, '').replace(/[.,\s]+$/, '');
+  const rest = t
+    .slice(0, m.index)
+    .replace(/[,\s]+$/, '')
+    .replace(/\b(?:and|also|but|i|need|you|to|please)\s*$/i, '')
+    .trim();
+  return { note: note || undefined, rest };
+}
+
 function readback(s) {
   const total = Number(s.squareFeet) * Number(s.pricePerSquareFoot);
+  const note = s.note ? ` I'll add the note: "${s.note}".` : '';
   return (
     `To confirm, sir: a ${s.templateName} estimate for ${s.contactName}, ${s.squareFeet} square feet at ` +
-    `$${money(s.pricePerSquareFoot)} per square foot — that comes to $${money(total)}. Shall I send it?`
+    `$${money(s.pricePerSquareFoot)} per square foot — that comes to $${money(total)}.${note} Shall I send it?`
   );
 }
 
@@ -191,34 +212,37 @@ function readback(s) {
  */
 function advanceQuote(prev, text) {
   const s = { ...(prev || {}) };
-  const parsed = parseQuoteFields(text);
-  const hasNew = Object.keys(parsed).length > 0;
+  // Peel off any note first so its numbers don't pollute quantity/price parsing.
+  const { note, rest } = extractNote(text);
+  if (note) s.note = note;
+  const parsed = parseQuoteFields(rest);
+  const hasFieldChange = Object.keys(parsed).length > 0;
 
   // Clear, field-free cancel drops the whole thing.
-  if (isCancel(text) && !isConfirm(text) && !hasNew) {
+  if (isCancel(rest) && !isConfirm(text) && !hasFieldChange && !note) {
     return { state: null, speech: "No problem, sir — I won't send it." };
   }
 
-  // At the confirmation step, a plain yes sends; anything else is treated as a
-  // correction and re-confirmed.
-  if (s.confirming && isConfirm(text) && !hasNew) {
+  // A plain yes at the confirmation step sends (a note may ride along); a field
+  // change is treated as a correction and re-confirmed.
+  if (s.confirming && isConfirm(text) && !hasFieldChange) {
     const { confirming, awaiting, ...fields } = s;
     return { state: null, send: fields };
   }
 
   Object.assign(s, parsed);
   // A bare name answers the "who is it for?" question when no other field parsed.
-  if (s.awaiting === 'contactName' && !s.contactName && !hasNew) {
-    const nm = nameFromReply(text);
+  if (s.awaiting === 'contactName' && !s.contactName && !hasFieldChange && !note) {
+    const nm = nameFromReply(rest);
     if (nm) s.contactName = nm;
   }
   // A bare number answers whatever numeric field we just asked for.
   if (s.awaiting === 'squareFeet' && parsed.squareFeet === undefined) {
-    const n = bareNumber(text);
+    const n = bareNumber(rest);
     if (n !== undefined) s.squareFeet = n;
   }
   if (s.awaiting === 'pricePerSquareFoot' && parsed.pricePerSquareFoot === undefined) {
-    const n = bareNumber(text);
+    const n = bareNumber(rest);
     if (n !== undefined) s.pricePerSquareFoot = n;
   }
 
@@ -247,4 +271,5 @@ module.exports = {
   parseContact,
   nameFromReply,
   bareNumber,
+  extractNote,
 };

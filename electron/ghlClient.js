@@ -19,6 +19,20 @@ const API_VERSION = '2021-07-28';
 // session handoff; override with GHL_APPOINTMENT_USER_ID.)
 const DEFAULT_APPOINTMENT_USER = () => process.env.GHL_APPOINTMENT_USER_ID || '6pvVVC5ph1zf9m5Z7IKj';
 
+// Append a custom note to a template's terms/notes, tolerating whatever shape
+// the API returns termsNotes in (string, {text}, {html}, or absent).
+function appendNote(termsNotes, note) {
+  if (!note) return termsNotes;
+  const line = `Note: ${note}`;
+  if (typeof termsNotes === 'string') return termsNotes ? `${termsNotes}\n\n${line}` : line;
+  if (termsNotes && typeof termsNotes === 'object') {
+    if (typeof termsNotes.text === 'string') return { ...termsNotes, text: `${termsNotes.text}\n\n${line}` };
+    if (typeof termsNotes.html === 'string') return { ...termsNotes, html: `${termsNotes.html}<br/><br/>${line}` };
+    return termsNotes;
+  }
+  return line;
+}
+
 class GHLClient {
   constructor({ token = process.env.GHL_API_TOKEN, locationId = process.env.GHL_LOCATION_ID, fetchImpl = fetch } = {}) {
     this.token = token;
@@ -130,7 +144,7 @@ class GHLClient {
    * text AND email. Encodes the API's learned quirks: frequencySettings is
    * required, the send call needs a userId, and the name must be ≤ 40 chars.
    */
-  async sendQuote({ contactName, contactId, templateName, squareFeet, pricePerSquareFoot, title }) {
+  async sendQuote({ contactName, contactId, templateName, squareFeet, pricePerSquareFoot, title, note }) {
     const norm = (s) => String(s || '').toLowerCase();
 
     // 1. the customer
@@ -177,7 +191,7 @@ class GHLClient {
         },
         items: [item],
         discount: template.discount || { value: 0, type: 'percentage' },
-        termsNotes: template.termsNotes,
+        termsNotes: appendNote(template.termsNotes, note),
         frequencySettings: { enabled: false },
         issueDate: new Date().toISOString().slice(0, 10),
         expiryDate: new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10),
@@ -204,6 +218,7 @@ class GHLClient {
       squareFeet: Number(squareFeet),
       pricePerSquareFoot: Number(pricePerSquareFoot),
       total: Number(squareFeet) * Number(pricePerSquareFoot),
+      note: note || undefined,
     };
   }
 
@@ -220,7 +235,7 @@ class GHLClient {
    * sendQuote's learned quirks (frequencySettings required, send needs a userId,
    * name ≤ 40 chars).
    */
-  async sendInvoice({ contactName, contactId, templateName, quantity, amount, title }) {
+  async sendInvoice({ contactName, contactId, templateName, quantity, amount, title, note }) {
     const norm = (s) => String(s || '').toLowerCase();
 
     // 1. the customer
@@ -270,7 +285,7 @@ class GHLClient {
         },
         items: [item],
         discount: template.discount || { value: 0, type: 'percentage' },
-        termsNotes: template.termsNotes,
+        termsNotes: appendNote(template.termsNotes, note),
         frequencySettings: { enabled: false },
         issueDate: today,
         dueDate: today, // invoices are due the same day they're sent
@@ -298,7 +313,26 @@ class GHLClient {
       amount: Number(amount),
       total: Number(quantity) * Number(amount),
       dueDate: today,
+      note: note || undefined,
     };
+  }
+
+  /**
+   * Match a spoken template name against the real saved templates so the flow
+   * can disambiguate ("polished" -> 200/400/800 grit) and show the exact name.
+   * @returns {Promise<{all: string[], matches: string[]}>}
+   */
+  async findTemplates({ kind, name }) {
+    let tpls = kind === 'invoice' ? ((await this.listInvoiceTemplates()).data || []) : ((await this.listEstimateTemplates()).data || []);
+    if (kind === 'invoice' && !tpls.length) tpls = ((await this.listEstimateTemplates()).data || []);
+    const norm = (s) => String(s || '').toLowerCase();
+    const want = norm(name).replace(/\b(system|concrete|template)\b/g, '').trim();
+    const wantTokens = want.split(/\s+/).filter(Boolean);
+    const all = tpls.map((t) => t.name);
+    if (!wantTokens.length) return { all, matches: [] };
+    const strict = tpls.filter((t) => wantTokens.every((tk) => norm(t.name).includes(tk)));
+    const loose = tpls.filter((t) => wantTokens.some((tk) => tk.length > 2 && norm(t.name).includes(tk)));
+    return { all, matches: (strict.length ? strict : loose).map((t) => t.name) };
   }
 
   // --- Conversations ---

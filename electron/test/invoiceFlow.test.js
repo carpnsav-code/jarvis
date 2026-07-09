@@ -60,6 +60,28 @@ test('even a fully specified invoice confirms before sending, then sends on yes'
   assert.equal(r.send.amount, 6);
 });
 
+test('a note is captured, kept out of pricing, and rides to the send', () => {
+  let r = advanceInvoice(null, 'send an invoice to Saul Lopez');
+  r = advanceInvoice(r.state, 'stained');
+  r = advanceInvoice(r.state, 'thousand');
+  // Note given at the price step: its "one of three" must NOT be read as a price.
+  r = advanceInvoice(r.state, 'leave a note on the invoice that this is payment one of three');
+  assert.ok(!r.send);
+  assert.match(r.speech, /price per square foot/i, 'note must not satisfy the price question');
+  assert.equal(r.state.note, 'this is payment one of three');
+
+  r = advanceInvoice(r.state, 'two dollars a square foot');
+  assert.match(r.speech, /to confirm/i);
+  assert.match(r.speech, /\$2 per square foot/);
+  assert.match(r.speech, /I'll add the note: "this is payment one of three"/);
+
+  // Yes plus a restated note still sends, with the note attached.
+  r = advanceInvoice(r.state, 'yes, add the note that this is payment 1 of 3');
+  assert.ok(r.send);
+  assert.equal(r.send.note, 'this is payment 1 of 3');
+  assert.equal(r.send.amount, 2);
+});
+
 test('invoice cancel drops the pending invoice', () => {
   const confirming = advanceInvoice(null, 'send a flake invoice to Sam for 400 square feet at 6 dollars a foot');
   const r = advanceInvoice(confirming.state, 'no, cancel that');
