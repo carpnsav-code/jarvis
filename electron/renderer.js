@@ -99,21 +99,45 @@ document.getElementById('spotify-auth').addEventListener('click', async () => {
 const DUCK_VOLUME = 0.5;
 let speakerMuted = false;
 
-// One reusable audio element, "primed" on the first tap so browsers (especially
-// iPhone) allow later programmatic playback. Without this, replies are silent.
+// One reusable audio element, "primed" on the first tap by actually playing a
+// silent WAV — the reliable unlock so browsers (especially iPhone Safari) allow
+// later programmatic playback. Without this, replies are silent.
+const SILENT_WAV =
+  'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 const player = new Audio();
 let audioPrimed = false;
-function primeAudio() {
+async function primeAudio() {
   if (audioPrimed) return;
-  audioPrimed = true;
   try {
-    player.play().then(() => player.pause()).catch(() => {});
-    window.speechSynthesis && window.speechSynthesis.resume();
+    player.src = SILENT_WAV;
+    await player.play();
+    player.pause();
+    audioPrimed = true; // only mark primed once a real play succeeded
+  } catch {
+    /* no gesture yet — will retry on the next tap */
+  }
+  try {
+    if (window.speechSynthesis) window.speechSynthesis.resume();
   } catch {
     /* ignore */
   }
 }
-document.addEventListener('pointerdown', primeAudio, { once: true });
+// Not {once:true}: if the first attempt fails we retry on every tap until it works.
+document.addEventListener('pointerdown', () => primeAudio(), { capture: true });
+
+// Data-URI audio can be flaky on Safari; convert to a blob URL for playback.
+function toPlayableUrl(dataUri) {
+  try {
+    const [meta, b64] = dataUri.split(',');
+    const mime = (meta.match(/data:([^;]+)/) || [])[1] || 'audio/mpeg';
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return URL.createObjectURL(new Blob([arr], { type: mime }));
+  } catch {
+    return dataUri;
+  }
+}
 let speaking = false;
 let currentAudio = null;
 let speechDone = null; // resolver for the in-flight speak()
@@ -212,16 +236,18 @@ async function speak(text) {
   if (audio) {
     await new Promise((resolve) => {
       speechDone = resolve;
-      player.src = audio;
+      const src = toPlayableUrl(audio);
+      player.src = src;
       player.volume = DUCK_VOLUME; // ducked so you can talk over him
       currentAudio = player;
       player.onplaying = () => showText(text);
       player.onended = () => {
+        if (src.startsWith('blob:')) URL.revokeObjectURL(src);
         speechDone = null;
         resolve();
       };
       player.play().catch(() => {
-        appendLog('jarvis', '🔇 Tap the screen once to enable sound, then try again.');
+        appendLog('jarvis', '🔇 Tap the screen once to enable sound, then ask again.');
         speechDone = null;
         resolve();
       });
@@ -362,6 +388,17 @@ let mediaStream = null;
 let recorder = null;
 let recChunks = [];
 
+function pickRecorderMime() {
+  if (!window.MediaRecorder) return null;
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/mpeg'];
+  if (MediaRecorder.isTypeSupported) {
+    for (const m of candidates) {
+      if (MediaRecorder.isTypeSupported(m)) return m;
+    }
+  }
+  return ''; // let the browser pick its default
+}
+
 async function startRecording() {
   primeAudio();
   stopSpeaking(); // pressing to talk interrupts him
@@ -370,17 +407,26 @@ async function startRecording() {
   talkBtn.classList.add('recording');
   talkBtn.textContent = '● Starting…';
   setState('listening');
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+    appendLog('jarvis', '⚠️ This browser cannot record audio. On iPhone use Safari; on desktop use Chrome — or type below.');
+    stopRecording();
+    return;
+  }
   try {
     if (!mediaStream) mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch {
-    appendLog('jarvis', '🎤 Microphone is blocked. Allow mic access for this site in your browser, then tap again.');
+    appendLog('jarvis', '🎤 Microphone is blocked. Tap the lock/aA icon in the address bar → allow Microphone, then try again.');
     stopRecording();
     return;
   }
   recChunks = [];
   try {
-    recorder = new MediaRecorder(mediaStream);
-  } catch {
+    const mime = pickRecorderMime();
+    recorder = mime ? new MediaRecorder(mediaStream, { mimeType: mime }) : new MediaRecorder(mediaStream);
+  } catch (err) {
+    appendLog('jarvis', `⚠️ Recorder failed to start (${err.name || 'error'}). Try typing below instead.`);
+    stopRecording();
     return;
   }
   recorder.ondataavailable = (e) => {
@@ -388,7 +434,8 @@ async function startRecording() {
   };
   recorder.onstop = async () => {
     const blob = new Blob(recChunks, { type: recorder.mimeType || 'audio/webm' });
-    if (!blob.size) {
+    if (blob.size < 200) {
+      appendLog('jarvis', "I didn't catch any audio — hold the button and speak, then tap Stop.");
       setState(micMuted ? 'idle' : 'listening');
       return;
     }
@@ -397,12 +444,17 @@ async function startRecording() {
       const res = await fetch('/api/stt', { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob });
       const { text } = await res.json();
       if (text && text.trim()) handleUtterance(text.trim());
-      else setState(micMuted ? 'idle' : 'listening');
+      else {
+        appendLog('jarvis', "I couldn't make that out — try again a bit closer to the mic.");
+        setState(micMuted ? 'idle' : 'listening');
+      }
     } catch {
+      appendLog('jarvis', '⚠️ Lost connection to the server — check the internet and try again.');
       setState(micMuted ? 'idle' : 'listening');
     }
   };
-  recorder.start();
+  // Timeslice so iOS Safari actually flushes chunks while recording.
+  recorder.start(250);
   talkBtn.textContent = '■ Stop & send';
   setState('listening');
 }

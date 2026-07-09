@@ -54,6 +54,10 @@ class GHLClient {
     return this.request('POST', '/contacts/', { body: { locationId: this.locationId, ...fields } });
   }
 
+  addContactTags({ contactId, tags }) {
+    return this.request('POST', `/contacts/${contactId}/tags`, { body: { tags } });
+  }
+
   // --- Pipelines & opportunities ---
   listPipelines() {
     return this.request('GET', '/opportunities/pipelines', { query: { locationId: this.locationId } });
@@ -62,6 +66,9 @@ class GHLClient {
     return this.request('GET', '/opportunities/search', {
       query: { location_id: this.locationId, pipeline_id: pipelineId, status, q: query, limit },
     });
+  }
+  updateOpportunity({ opportunityId, ...fields }) {
+    return this.request('PUT', `/opportunities/${opportunityId}`, { body: fields });
   }
 
   // --- Calendar ---
@@ -73,8 +80,23 @@ class GHLClient {
       query: { locationId: this.locationId, startTime, endTime, calendarId },
     });
   }
+  getFreeSlots({ calendarId, startDate, endDate, timezone }) {
+    return this.request('GET', `/calendars/${calendarId}/free-slots`, {
+      query: { startDate, endDate, timezone },
+    });
+  }
+  createAppointment({ calendarId, contactId, startTime, endTime, title }) {
+    return this.request('POST', '/calendars/events/appointments', {
+      body: { locationId: this.locationId, calendarId, contactId, startTime, endTime, title, appointmentStatus: 'confirmed' },
+    });
+  }
 
   // --- Conversations ---
+  listConversations({ contactId, limit = 20 } = {}) {
+    return this.request('GET', '/conversations/search', {
+      query: { locationId: this.locationId, contactId, limit },
+    });
+  }
   sendMessage({ contactId, type, message, subject }) {
     return this.request('POST', '/conversations/messages', {
       body: { contactId, type, message, ...(type === 'Email' ? { subject } : {}) },
@@ -88,14 +110,24 @@ class GHLClient {
         return this.listContacts(args);
       case 'ghl_create_contact':
         return this.createContact(args);
+      case 'ghl_add_contact_tags':
+        return this.addContactTags(args);
       case 'ghl_list_pipelines':
         return this.listPipelines();
       case 'ghl_list_opportunities':
         return this.listOpportunities(args);
+      case 'ghl_update_opportunity':
+        return this.updateOpportunity(args);
       case 'ghl_list_calendars':
         return this.listCalendars();
       case 'ghl_list_appointments':
         return this.listAppointments(args);
+      case 'ghl_get_free_slots':
+        return this.getFreeSlots(args);
+      case 'ghl_create_appointment':
+        return this.createAppointment(args);
+      case 'ghl_list_conversations':
+        return this.listConversations(args);
       case 'ghl_send_message':
         return this.sendMessage(args);
       default:
@@ -163,9 +195,91 @@ const TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'ghl_add_contact_tags',
+      description: 'Add one or more tags to a contact (find contactId with ghl_list_contacts).',
+      parameters: {
+        type: 'object',
+        properties: {
+          contactId: { type: 'string' },
+          tags: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['contactId', 'tags'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ghl_update_opportunity',
+      description: 'Update a deal: move it to another stage (pipelineStageId from ghl_list_pipelines), change its value, or mark it won/lost.',
+      parameters: {
+        type: 'object',
+        properties: {
+          opportunityId: { type: 'string' },
+          name: { type: 'string' },
+          pipelineStageId: { type: 'string' },
+          monetaryValue: { type: 'number' },
+          status: { type: 'string', enum: ['open', 'won', 'lost', 'abandoned'] },
+        },
+        required: ['opportunityId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'ghl_list_calendars',
       description: 'List calendars in the account (to get a calendarId).',
       parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ghl_get_free_slots',
+      description: 'Check available booking slots on a calendar between two dates.',
+      parameters: {
+        type: 'object',
+        properties: {
+          calendarId: { type: 'string' },
+          startDate: { type: 'string', description: 'ISO date or epoch millis' },
+          endDate: { type: 'string', description: 'ISO date or epoch millis' },
+          timezone: { type: 'string' },
+        },
+        required: ['calendarId', 'startDate', 'endDate'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ghl_create_appointment',
+      description: 'Book an appointment for a contact on a calendar (ISO start/end times).',
+      parameters: {
+        type: 'object',
+        properties: {
+          calendarId: { type: 'string' },
+          contactId: { type: 'string' },
+          startTime: { type: 'string' },
+          endTime: { type: 'string' },
+          title: { type: 'string' },
+        },
+        required: ['calendarId', 'contactId', 'startTime', 'endTime'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ghl_list_conversations',
+      description: 'List recent conversation threads, optionally for one contact.',
+      parameters: {
+        type: 'object',
+        properties: {
+          contactId: { type: 'string' },
+          limit: { type: 'integer' },
+        },
+      },
     },
   },
   {
