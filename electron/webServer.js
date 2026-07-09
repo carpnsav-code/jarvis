@@ -297,11 +297,15 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   const keys = loadGroqKeys().length;
+  const voice = elevenlabs.isConfigured()
+    ? 'ElevenLabs (British JARVIS voice) ✓'
+    : 'browser fallback (robotic) — no ELEVENLABS_API_KEY found';
   // eslint-disable-next-line no-console
   console.log(
     `\n  ✦ Jarvis is running (web mode — no Electron needed).\n\n` +
       `    Open this in Chrome:   ${ORIGIN}\n\n` +
       `    Brain: ${keys ? `${keys} Groq key(s)` : 'no Groq key set — chat replies disabled'}\n` +
+      `    Voice: ${voice}\n` +
       `    Press Ctrl+C here to stop.\n`,
   );
   missionLog.info(`web server on ${ORIGIN}`);
