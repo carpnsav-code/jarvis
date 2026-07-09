@@ -48,9 +48,22 @@ const {
 } = require('./spotify');
 
 const PORT = Number(process.env.JARVIS_PORT || 8800);
-const HOST = '127.0.0.1';
-const ORIGIN = `http://${HOST}:${PORT}`;
+// Bind to all interfaces so a phone on the same Wi-Fi can reach it. ORIGIN stays
+// the loopback address for local URL parsing / the default embed origin.
+const HOST = process.env.JARVIS_HOST || '0.0.0.0';
+const ORIGIN = `http://127.0.0.1:${PORT}`;
 const GREETING = process.env.JARVIS_GREETING || 'Systems online. Say the word whenever you need me, sir.';
+
+// This machine's LAN IP, for opening Jarvis on a phone.
+function lanIp() {
+  const nets = require('os').networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] || []) {
+      if (net.family === 'IPv4' && !net.internal) return net.address;
+    }
+  }
+  return null;
+}
 
 // --- State ----------------------------------------------------------------------
 let apps = [];
@@ -144,7 +157,7 @@ async function runCreateFile(create) {
   }
 }
 
-async function routeVoice(text) {
+async function routeVoice(text, pageOrigin = ORIGIN) {
   const out = { speech: '', playerUrl: null, playerCommand: null, spotifyState: null };
   lastSpotifyState = null;
 
@@ -159,7 +172,7 @@ async function routeVoice(text) {
         sendCommand: (msg) => {
           out.playerCommand = msg;
         },
-        origin: ORIGIN,
+        origin: pageOrigin, // matches however the page was opened (localhost or phone IP)
       });
       out.speech = outcome.videoSpeech(r);
     } catch {
@@ -267,7 +280,8 @@ const server = http.createServer(async (req, res) => {
       const data = body ? JSON.parse(body) : {};
       if (url.pathname === '/api/voice') {
         const text = data.text || '';
-        const result = await routeVoice(text);
+        const pageOrigin = req.headers.host ? `http://${req.headers.host}` : ORIGIN;
+        const result = await routeVoice(text, pageOrigin);
         memory.addTurn('user', text);
         memory.addTurn('assistant', result.speech);
         extractInBackground(memory, text, result.speech);
@@ -315,10 +329,12 @@ server.listen(PORT, HOST, () => {
     ? 'ElevenLabs (British JARVIS voice) ✓'
     : 'browser fallback (robotic) — no ELEVENLABS_API_KEY found';
   // eslint-disable-next-line no-console
+  const ip = lanIp();
   console.log(
     `\n  ✦ Jarvis is running (web mode — no Electron needed).\n\n` +
-      `    Open this in Chrome:   ${ORIGIN}\n\n` +
-      `    Brain: ${keys ? `${keys} Groq key(s)` : 'no Groq key set — chat replies disabled'}\n` +
+      `    On this Mac:     ${ORIGIN}\n` +
+      (ip ? `    On your phone:   http://${ip}:${PORT}   (same Wi-Fi)\n` : '') +
+      `\n    Brain: ${keys ? `${keys} Groq key(s)` : 'no Groq key set — chat replies disabled'}\n` +
       `    Voice: ${voice}\n` +
       `    Press Ctrl+C here to stop.\n`,
   );

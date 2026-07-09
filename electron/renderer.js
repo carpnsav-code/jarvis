@@ -103,6 +103,7 @@ let currentAudio = null;
 let speechDone = null; // resolver for the in-flight speak()
 let lastSpokenWords = []; // for the echo filter
 let echoGuardUntil = 0;
+let cooldownUntil = 0; // just after he speaks: ignore his own echo tail
 
 function words(s) {
   return String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
@@ -180,6 +181,7 @@ async function speak(text) {
     showText(text);
     speaking = false;
     echoGuardUntil = Date.now() + 1200;
+    cooldownUntil = Date.now() + 700;
     return;
   }
 
@@ -216,6 +218,7 @@ async function speak(text) {
   speaking = false;
   currentAudio = null;
   echoGuardUntil = Date.now() + 1200;
+  cooldownUntil = Date.now() + 700; // ignore his own trailing echo
 }
 
 // --- Send an utterance ----------------------------------------------------------
@@ -259,55 +262,64 @@ function setListening(on) {
   if (!active && stage.dataset.state === 'listening') setState('idle');
 }
 
+let recognizing = false;
+function startRec() {
+  if (recognizing || micMuted || !recognition) return;
+  try {
+    recognition.start();
+  } catch {
+    /* already started — fine */
+  }
+}
+
 if (SpeechRecognition) {
   recognition = new SpeechRecognition();
   recognition.continuous = true;
-  recognition.interimResults = true; // needed to catch the *start* of your speech
+  recognition.interimResults = true; // catch the start of your speech
   recognition.lang = 'en-US';
 
-  recognition.onstart = () => setListening(true);
-  recognition.onend = () => {
-    setListening(false);
-    if (!micMuted) {
-      try {
-        recognition.start();
-      } catch {
-        /* already starting */
-      }
-    }
+  recognition.onstart = () => {
+    recognizing = true;
+    setListening(true);
   };
-  recognition.onerror = () => setListening(false);
+  recognition.onend = () => {
+    recognizing = false;
+    setListening(false);
+    if (!micMuted) startRec(); // Chrome stops it periodically — bring it back
+  };
+  recognition.onerror = () => {
+    recognizing = false; // 'no-speech'/'aborted' are normal; watchdog restarts
+  };
 
   recognition.onresult = (event) => {
     const result = event.results[event.results.length - 1];
     const transcript = result[0].transcript.trim();
     if (!transcript) return;
-    if (isEcho(transcript)) return; // ignore his own voice bleeding into the mic
 
     const hasWake = WAKE.test(transcript);
+    // While he's talking, or in the brief cooldown right after, ignore
+    // everything except his name — this stops his own voice/echo from ever
+    // triggering a turn (the thing that breaks back-and-forth).
+    const suppressed = speaking || Date.now() < cooldownUntil;
+    if (suppressed && !hasWake) return;
+    if (!suppressed && !hasWake && isEcho(transcript)) return;
 
     if (speaking) {
-      // While talking he only stops for his name — everything else, he talks
-      // right through (loud noise no longer cuts him off).
-      if (!hasWake) return;
       stopSpeaking();
       setState('listening');
     }
 
     if (result.isFinal) {
-      // Strip the wake word if present; when idle you don't need it.
       const command = hasWake ? stripWake(transcript) : transcript.trim();
       if (command) handleUtterance(command);
-      // Just "Jarvis" alone → he's stopped and now listening; your next line is
-      // taken normally.
     }
   };
 
-  try {
-    recognition.start();
-  } catch {
-    /* ignore */
-  }
+  startRec();
+  // Watchdog: if recognition ever dies silently, restart it.
+  setInterval(() => {
+    if (!micMuted && !recognizing) startRec();
+  }, 1500);
 } else {
   setChip(micBtn, false, 'Mic N/A');
   micBtn.style.pointerEvents = 'none';
@@ -319,13 +331,7 @@ micBtn.addEventListener('click', () => {
   setListening(!micMuted);
   if (!recognition) return;
   if (micMuted) recognition.stop();
-  else {
-    try {
-      recognition.start();
-    } catch {
-      /* ignore */
-    }
-  }
+  else startRec();
 });
 
 speakerBtn.addEventListener('click', () => {
