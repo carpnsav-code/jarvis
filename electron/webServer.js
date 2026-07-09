@@ -49,7 +49,7 @@ const {
 const PORT = Number(process.env.JARVIS_PORT || 8800);
 const HOST = '127.0.0.1';
 const ORIGIN = `http://${HOST}:${PORT}`;
-const GREETING = process.env.JARVIS_GREETING || 'Jarvis online. How can I help?';
+const GREETING = process.env.JARVIS_GREETING || 'JARVIS online. Say my name whenever you need me, sir.';
 
 // --- State ----------------------------------------------------------------------
 let apps = [];
@@ -88,6 +88,9 @@ function openUrl(url) {
 // --- Routing (mirrors the Electron router, returns directives) -------------------
 const QUESTION_LIKE =
   /^(who|what|whats|when|where|why|how|which|is|are|do|does|did|can|could|should|will)\b|\b(search|look up|lookup|google|find out|weather|forecast|price|news|followers)\b/;
+// He only *acts* (launches an app / opens a site) on an explicit command verb —
+// merely mentioning an app name never triggers it.
+const LAUNCH_VERB = /\b(open|launch|start|run|go to|bring up|pull up|fire up)\b/;
 
 async function runSearch(text) {
   const gate = await searchGate(text);
@@ -188,10 +191,12 @@ async function routeVoice(text) {
     const s = await runSearch(text);
     if (s.action === 'search') context = outcome.searchToContext(s);
   } else {
-    const launched = handleCommand({ action: text, target: text }, { apps });
-    if (launched.ok) {
-      out.speech = outcome.launchSpeech(launched);
-      return out;
+    if (LAUNCH_VERB.test(t)) {
+      const launched = handleCommand({ action: text, target: text }, { apps });
+      if (launched.ok) {
+        out.speech = outcome.launchSpeech(launched);
+        return out;
+      }
     }
     const s = await runSearch(text);
     if (s.action === 'search') context = outcome.searchToContext(s);

@@ -238,6 +238,16 @@ const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecogni
 let recognition = null;
 let micMuted = false;
 
+// Wake word: Jarvis only listens/acts/stops when addressed by name, so
+// background noise and normal talking are ignored. After you say "Jarvis" with
+// no command, he opens a short window to catch your follow-up.
+const WAKE = /\b(jarvis|jervis|jarvus)\b/i;
+const AWAKE_WINDOW_MS = 8000;
+let awakeUntil = 0;
+function stripWake(text) {
+  return text.replace(WAKE, '').replace(/^[\s,.:;!?-]+/, '').trim();
+}
+
 function setListening(on) {
   const active = on && !micMuted;
   bar.classList.toggle('listening', active);
@@ -268,18 +278,29 @@ if (SpeechRecognition) {
     const result = event.results[event.results.length - 1];
     const transcript = result[0].transcript.trim();
     if (!transcript) return;
+    if (isEcho(transcript)) return; // his own voice — never react to it
 
-    const echo = isEcho(transcript);
+    // Only react if addressed by name (or inside the short follow-up window).
+    const addressed = WAKE.test(transcript) || Date.now() < awakeUntil;
+    if (!addressed) return; // background noise / not talking to him → ignore, keep going
 
-    // You started talking while Jarvis was speaking → he shuts up. Now.
-    if (speaking && !echo) {
+    // He's being spoken to → stop talking and pay attention (this is the only
+    // thing that interrupts him mid-sentence).
+    if (speaking) {
       stopSpeaking();
       setState('listening');
     }
 
     if (result.isFinal) {
-      if (echo) return; // that was Jarvis's own voice — ignore it
-      handleUtterance(transcript);
+      const command = WAKE.test(transcript) ? stripWake(transcript) : transcript.trim();
+      if (command) {
+        awakeUntil = 0;
+        handleUtterance(command);
+      } else {
+        // Just "Jarvis" on its own → acknowledge and open the follow-up window.
+        awakeUntil = Date.now() + AWAKE_WINDOW_MS;
+        speak('Yes, sir?');
+      }
     }
   };
 

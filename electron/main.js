@@ -52,7 +52,7 @@ let memory = null;
 let spotify = null;
 let brain = null;
 
-const GREETING = process.env.JARVIS_GREETING || 'Jarvis online. How can I help?';
+const GREETING = process.env.JARVIS_GREETING || 'JARVIS online. Say my name whenever you need me, sir.';
 
 function createWindow() {
   win = new BrowserWindow({
@@ -77,6 +77,8 @@ function createWindow() {
 // launch an app.
 const QUESTION_LIKE =
   /^(who|what|whats|when|where|why|how|which|is|are|do|does|did|can|could|should|will)\b|\b(search|look up|lookup|google|find out|weather|forecast|price|news|followers)\b/;
+// He only *acts* (launches an app / opens a site) on an explicit command verb.
+const LAUNCH_VERB = /\b(open|launch|start|run|go to|bring up|pull up|fire up)\b/;
 
 /** Run the search gate, then search if live data is actually wanted. */
 async function runSearch(text) {
@@ -186,8 +188,10 @@ async function routeVoice(text) {
     const s = await runSearch(text);
     if (s.action === 'search') context = outcome.searchToContext(s);
   } else {
-    const launched = handleCommand({ action: text, target: text }, { apps });
-    if (launched.ok) return { speech: outcome.launchSpeech(launched), handled: true, detail: launched };
+    if (LAUNCH_VERB.test(t)) {
+      const launched = handleCommand({ action: text, target: text }, { apps });
+      if (launched.ok) return { speech: outcome.launchSpeech(launched), handled: true, detail: launched };
+    }
     const s = await runSearch(text);
     if (s.action === 'search') context = outcome.searchToContext(s);
   }
