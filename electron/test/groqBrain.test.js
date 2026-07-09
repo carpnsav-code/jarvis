@@ -31,7 +31,7 @@ test('reply throws only when every key fails', async () => {
     keys: ['k1', 'k2'],
     fetchImpl: async () => ({ status: 429, ok: false, json: async () => ({}) }),
   });
-  await assert.rejects(() => brain.reply('hi'), /All Groq keys failed/);
+  await assert.rejects(() => brain.reply('hi'), /All AI providers failed/);
 });
 
 test('reply injects personality, facts, and live context into the system prompt', async () => {
@@ -72,4 +72,24 @@ test('reply keeps conversation history across turns', async () => {
 test('isConfigured reflects whether any key is present', () => {
   assert.equal(new GroqBrain({ keys: [] }).isConfigured(), false);
   assert.equal(new GroqBrain({ keys: ['x'] }).isConfigured(), true);
+});
+
+test('reply rolls over to Gemini when every Groq key is rate-limited', async () => {
+  const urls = [];
+  const brain = new GroqBrain({
+    keys: ['k1'],
+    geminiKey: 'gem1',
+    fetchImpl: async (url) => {
+      urls.push(url);
+      if (url.includes('groq')) return { status: 429, ok: false, json: async () => ({}) };
+      return { status: 200, ok: true, json: async () => ({ choices: [{ message: { content: 'from gemini' } }] }) };
+    },
+  });
+  assert.equal(await brain.reply('hi'), 'from gemini');
+  assert.ok(urls.some((u) => u.includes('generativelanguage')));
+});
+
+test('isConfigured is true with only a Gemini key', () => {
+  assert.equal(new GroqBrain({ keys: [], geminiKey: 'g' }).isConfigured(), true);
+  assert.equal(new GroqBrain({ keys: [], geminiKey: '' }).isConfigured(), false);
 });

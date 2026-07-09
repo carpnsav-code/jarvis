@@ -467,6 +467,7 @@ if (cert) {
 }
 
 const keys = loadGroqKeys().length;
+const gemini = Boolean(process.env.GEMINI_API_KEY);
 const voice = elevenlabs.isConfigured()
   ? 'ElevenLabs (British JARVIS voice) ✓'
   : 'browser fallback (robotic) — no ELEVENLABS_API_KEY found';
@@ -480,7 +481,7 @@ console.log(
   `\n  ✦ Jarvis is running (web mode — no Electron needed).\n\n` +
     `    On this Mac:     ${ORIGIN}\n` +
     phoneLine +
-    `\n    Brain: ${keys ? `${keys} Groq key(s)` : 'no Groq key set — chat replies disabled'}\n` +
+    `\n    Brain: ${keys ? `${keys} Groq key(s)` : 'no Groq key'}${gemini ? ' + Gemini backup ✓' : ' (add GEMINI_API_KEY for way more usage)'}\n` +
     `    Voice: ${voice}\n` +
     `    Press Ctrl+C here to stop.\n`,
 );

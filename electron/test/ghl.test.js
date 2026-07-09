@@ -225,3 +225,17 @@ test('runGhlAgent runs a tool-calling loop and returns the spoken answer', async
   assert.match(speech, /Acme/);
   assert.equal(turn, 2); // one tool round + one answer
 });
+
+test('agent rolls over to Gemini when Groq is fully rate-limited', async () => {
+  _resetModelBench();
+  const client = new GHLClient({ token: 't', locationId: 'l', fetchImpl: async () => ok({}) });
+  const urls = [];
+  const groqImpl = async (url) => {
+    urls.push(url);
+    if (url.includes('groq')) return { ok: false, status: 429, json: async () => ({}), text: async () => 'per day TPD' };
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { role: 'assistant', content: 'Three deals, sir.' } }] }) };
+  };
+  const speech = await runGhlAgent('how many deals', { keys: ['k'], client, groqImpl, geminiKey: 'gem' });
+  assert.match(speech, /Three deals/);
+  assert.ok(urls.some((u) => u.includes('generativelanguage')));
+});

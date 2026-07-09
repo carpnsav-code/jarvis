@@ -17,6 +17,10 @@
  */
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+// Google Gemini's OpenAI-compatible endpoint — a second, independent free
+// quota (~1500 requests/day) the brain rolls over to when Groq is tapped out.
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+const GEMINI_DEFAULT_MODEL = 'gemini-2.5-flash';
 // Default to Groq's fastest model for near-instant voice replies. Set
 // GROQ_MODEL=llama-3.3-70b-versatile if you want higher quality over speed.
 const DEFAULT_MODEL = 'llama-3.1-8b-instant';
@@ -67,8 +71,10 @@ class GroqBrain {
    * @param {() => string} [opts.factsProvider]  returns a memory-context block
    * @param {typeof fetch} [opts.fetchImpl]
    */
-  constructor({ keys = [], model = DEFAULT_MODEL, personality = DEFAULT_PERSONALITY, factsProvider = null, knowledge = '', fetchImpl = fetch } = {}) {
+  constructor({ keys = [], model = DEFAULT_MODEL, personality = DEFAULT_PERSONALITY, factsProvider = null, knowledge = '', geminiKey = process.env.GEMINI_API_KEY, geminiModel = process.env.GEMINI_MODEL || GEMINI_DEFAULT_MODEL, fetchImpl = fetch } = {}) {
     this.keys = keys;
+    this.geminiKey = geminiKey || '';
+    this.geminiModel = geminiModel;
     this.model = model;
     this.personality = personality;
     this.factsProvider = factsProvider;
@@ -78,7 +84,14 @@ class GroqBrain {
   }
 
   isConfigured() {
-    return this.keys.length > 0;
+    return this.keys.length > 0 || Boolean(this.geminiKey);
+  }
+
+  /** All AI endpoints in priority order: every Groq key, then Gemini. */
+  endpoints() {
+    const eps = this.keys.map((key, i) => ({ url: GROQ_URL, key, model: this.model, label: `groq key ${i + 1}` }));
+    if (this.geminiKey) eps.push({ url: GEMINI_URL, key: this.geminiKey, model: this.geminiModel, label: 'gemini' });
+    return eps;
   }
 
   /** Build the system prompt: personality + knowledge + remembered facts + live context.
@@ -122,24 +135,23 @@ class GroqBrain {
       if (reply !== null) return reply;
       lastError = this.lastTryError;
     }
-    throw new Error(`All Groq keys failed. Last error: ${lastError ? lastError.message : 'unknown'}`);
+    throw new Error(`All AI providers failed. Last error: ${lastError ? lastError.message : 'unknown'}`);
   }
 
-  /** One rotation over the keys; returns the reply or null if all failed. */
+  /** One rotation over every endpoint (Groq keys, then Gemini); null if all failed. */
   async tryKeys(messages, userText) {
     this.lastTryError = null;
-    for (let i = 0; i < this.keys.length; i++) {
-      const key = this.keys[i];
+    for (const ep of this.endpoints()) {
       try {
-        const res = await this.fetchImpl(GROQ_URL, {
+        const res = await this.fetchImpl(ep.url, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: this.model, messages, temperature: 0.7, max_tokens: 300 }),
+          headers: { Authorization: `Bearer ${ep.key}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: ep.model, messages, temperature: 0.7, max_tokens: 300 }),
         });
 
         // Rotate on rate limit, bad key, or server error.
         if (res.status === 429 || res.status === 401 || res.status >= 500) {
-          this.lastTryError = new Error(`Groq key ${i + 1} failed: HTTP ${res.status}`);
+          this.lastTryError = new Error(`${ep.label} failed: HTTP ${res.status}`);
           continue;
         }
         if (!res.ok) throw new Error(`Groq HTTP ${res.status}`);

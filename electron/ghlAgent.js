@@ -15,6 +15,10 @@
 const { GHLClient, TOOLS } = require('./ghlClient');
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+// Gemini's OpenAI-compatible endpoint (supports function calling) — a second,
+// independent free quota the agent rolls to when Groq is rate-limited.
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+const GEMINI_MODEL = () => process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 // Tool use benefits from the larger model; the fallback keeps working when the
 // big model is rate-limited (free-tier limits on 70b are tight).
 const AGENT_MODEL = 'llama-3.3-70b-versatile';
@@ -177,23 +181,26 @@ function benchMs(errText) {
   return /per day|TPD/i.test(errText) ? 10 * 60 * 1000 : 15 * 1000;
 }
 
-async function callGroq(messages, { keys, model, groqImpl, tools = TOOLS }) {
+async function callGroq(messages, { keys, model, groqImpl, tools = TOOLS, geminiKey = process.env.GEMINI_API_KEY }) {
   let lastErr = null;
-  // Ladder: primary → fallback immediately (separate quota) → both again
-  // after a breather so per-minute limits can clear.
+  // Ladder: Groq primary → Groq fallback → Gemini (independent quota) → all
+  // again after a breather so per-minute limits can clear.
+  const gem = geminiKey ? [{ url: GEMINI_URL, model: GEMINI_MODEL(), keys: [geminiKey] }] : [];
   const attempts = [
-    { model, wait: 0 },
-    { model: FALLBACK_MODEL, wait: 0 },
-    { model, wait: 1500 },
-    { model: FALLBACK_MODEL, wait: 1200 },
+    { url: GROQ_URL, model, keys, wait: 0 },
+    { url: GROQ_URL, model: FALLBACK_MODEL, keys, wait: 0 },
+    ...gem.map((g) => ({ ...g, wait: 0 })),
+    { url: GROQ_URL, model, keys, wait: 1500 },
+    { url: GROQ_URL, model: FALLBACK_MODEL, keys, wait: 1200 },
+    ...gem.map((g) => ({ ...g, wait: 1000 })),
   ];
   for (const attempt of attempts) {
-    const usable = keys.filter((k) => (modelBench.get(`${attempt.model}|${k}`) || 0) < Date.now());
+    const usable = attempt.keys.filter((k) => (modelBench.get(`${attempt.model}|${k}`) || 0) < Date.now());
     if (!usable.length) continue;
     if (attempt.wait) await sleep(attempt.wait);
     for (const key of usable) {
       try {
-        const res = await groqImpl(GROQ_URL, {
+        const res = await groqImpl(attempt.url, {
           method: 'POST',
           headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ model: attempt.model, messages, tools, tool_choice: 'auto', temperature: 0.2, max_tokens: 350 }),
@@ -233,8 +240,9 @@ async function callGroq(messages, { keys, model, groqImpl, tools = TOOLS }) {
  * @param {string} [deps.now]         ISO timestamp for date reasoning
  * @returns {Promise<string>}
  */
-async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT_MODEL, now = new Date().toISOString() }) {
-  if (!keys || !keys.length) return 'I need a Groq key to run that, sir.';
+async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT_MODEL, geminiKey = process.env.GEMINI_API_KEY, now = new Date().toISOString() }) {
+  if ((!keys || !keys.length) && !geminiKey) return 'I need an AI key to run that, sir.';
+  keys = keys || [];
   if (!client || !client.isConfigured()) {
     return 'Your GoHighLevel account is not connected yet, sir. Add your GHL token to get me operating it.';
   }
@@ -269,7 +277,7 @@ async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT
   const tools = toolsFor(text);
   try {
     for (let step = 0; step < MAX_STEPS; step++) {
-      const msg = await callGroq(messages, { keys, model, groqImpl, tools });
+      const msg = await callGroq(messages, { keys, model, groqImpl, tools, geminiKey });
       messages.push(msg);
 
       const calls = msg.tool_calls || [];
