@@ -340,6 +340,64 @@ speakerBtn.addEventListener('click', () => {
   if (speakerMuted) stopSpeaking();
 });
 
+// --- Hold-to-talk (works on phones incl. iPhone, via server-side Whisper) -------
+const talkBtn = document.getElementById('talk');
+let mediaStream = null;
+let recorder = null;
+let recChunks = [];
+
+async function startRecording() {
+  stopSpeaking(); // pressing to talk interrupts him
+  try {
+    if (!mediaStream) mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    showText('Microphone blocked — allow mic access for this site.');
+    return;
+  }
+  recChunks = [];
+  try {
+    recorder = new MediaRecorder(mediaStream);
+  } catch {
+    return;
+  }
+  recorder.ondataavailable = (e) => {
+    if (e.data && e.data.size) recChunks.push(e.data);
+  };
+  recorder.onstop = async () => {
+    const blob = new Blob(recChunks, { type: recorder.mimeType || 'audio/webm' });
+    if (!blob.size) {
+      setState(micMuted ? 'idle' : 'listening');
+      return;
+    }
+    setState('thinking');
+    try {
+      const res = await fetch('/api/stt', { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob });
+      const { text } = await res.json();
+      if (text && text.trim()) handleUtterance(text.trim());
+      else setState(micMuted ? 'idle' : 'listening');
+    } catch {
+      setState(micMuted ? 'idle' : 'listening');
+    }
+  };
+  recorder.start();
+  talkBtn.classList.add('recording');
+  talkBtn.textContent = '● Listening…';
+  setState('listening');
+}
+function stopRecording() {
+  talkBtn.classList.remove('recording');
+  talkBtn.textContent = '🎤 Hold to talk';
+  if (recorder && recorder.state !== 'inactive') recorder.stop();
+}
+// Press-and-hold (mouse + touch).
+talkBtn.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  startRecording();
+});
+talkBtn.addEventListener('pointerup', stopRecording);
+talkBtn.addEventListener('pointerleave', stopRecording);
+talkBtn.addEventListener('pointercancel', stopRecording);
+
 // --- Startup greeting -----------------------------------------------------------
 window.addEventListener('load', async () => {
   window.speechSynthesis.getVoices();

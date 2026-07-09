@@ -18,10 +18,12 @@
 require('./envLoader').loadEnv();
 
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
+const { ensureCert } = require('./selfSignedCert');
 
 const { loadApps, handleCommand } = require('./computerControl');
 const { searchYouTube } = require('./youtube');
@@ -235,6 +237,39 @@ function readBody(req) {
     req.on('end', () => resolve(data));
   });
 }
+function readBodyBuffer(req) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+  });
+}
+
+/** Transcribe an audio buffer via Groq Whisper (works for phones without the
+ *  Web Speech API, e.g. iPhone). Returns '' if unavailable. */
+async function transcribe(buf, contentType) {
+  const keys = loadGroqKeys();
+  if (!keys.length || !buf.length) return '';
+  const ext = /mp4|m4a/.test(contentType) ? 'mp4' : /mpeg|mp3/.test(contentType) ? 'mp3' : /wav/.test(contentType) ? 'wav' : 'webm';
+  for (const key of keys) {
+    try {
+      const form = new FormData();
+      form.append('model', 'whisper-large-v3');
+      form.append('file', new Blob([buf], { type: contentType || 'audio/webm' }), `audio.${ext}`);
+      const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}` },
+        body: form,
+      });
+      if (res.status === 429 || res.status === 401 || res.status >= 500) continue;
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return ((await res.json()).text || '').trim();
+    } catch (err) {
+      missionLog.error(`stt: ${err.message}`);
+    }
+  }
+  return '';
+}
 function sendJson(res, obj) {
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(obj));
@@ -259,7 +294,7 @@ function sendIndex(res) {
   res.end(html);
 }
 
-const server = http.createServer(async (req, res) => {
+const handler = async (req, res) => {
   const url = new URL(req.url, ORIGIN);
   try {
     if (req.method === 'GET') {
@@ -276,6 +311,12 @@ const server = http.createServer(async (req, res) => {
       }
     }
     if (req.method === 'POST') {
+      // Speech-to-text takes a binary audio body — handle before JSON parsing.
+      if (url.pathname === '/api/stt') {
+        const buf = await readBodyBuffer(req);
+        const text = await transcribe(buf, req.headers['content-type'] || '');
+        return sendJson(res, { text });
+      }
       const body = await readBody(req);
       const data = body ? JSON.parse(body) : {};
       if (url.pathname === '/api/voice') {
@@ -321,22 +362,33 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(500);
     res.end('Server error');
   }
-});
+};
 
-server.listen(PORT, HOST, () => {
-  const keys = loadGroqKeys().length;
-  const voice = elevenlabs.isConfigured()
-    ? 'ElevenLabs (British JARVIS voice) ✓'
-    : 'browser fallback (robotic) — no ELEVENLABS_API_KEY found';
-  // eslint-disable-next-line no-console
-  const ip = lanIp();
-  console.log(
-    `\n  ✦ Jarvis is running (web mode — no Electron needed).\n\n` +
-      `    On this Mac:     ${ORIGIN}\n` +
-      (ip ? `    On your phone:   http://${ip}:${PORT}   (same Wi-Fi)\n` : '') +
-      `\n    Brain: ${keys ? `${keys} Groq key(s)` : 'no Groq key set — chat replies disabled'}\n` +
-      `    Voice: ${voice}\n` +
-      `    Press Ctrl+C here to stop.\n`,
-  );
-  missionLog.info(`web server on ${ORIGIN}`);
-});
+const ip = lanIp();
+const HTTPS_PORT = PORT + 1;
+const cert = ensureCert(ip); // self-signed, for phone mic access over https
+
+http.createServer(handler).listen(PORT, HOST);
+if (cert) {
+  https.createServer({ key: cert.key, cert: cert.cert }, handler).listen(HTTPS_PORT, HOST);
+}
+
+const keys = loadGroqKeys().length;
+const voice = elevenlabs.isConfigured()
+  ? 'ElevenLabs (British JARVIS voice) ✓'
+  : 'browser fallback (robotic) — no ELEVENLABS_API_KEY found';
+const phoneLine = cert && ip
+  ? `    On your phone:   https://${ip}:${HTTPS_PORT}   (same Wi-Fi — tap "advanced/proceed" past the warning)\n`
+  : ip
+    ? `    On your phone:   http://${ip}:${PORT}   (view/type only — no mic without https)\n`
+    : '';
+// eslint-disable-next-line no-console
+console.log(
+  `\n  ✦ Jarvis is running (web mode — no Electron needed).\n\n` +
+    `    On this Mac:     ${ORIGIN}\n` +
+    phoneLine +
+    `\n    Brain: ${keys ? `${keys} Groq key(s)` : 'no Groq key set — chat replies disabled'}\n` +
+    `    Voice: ${voice}\n` +
+    `    Press Ctrl+C here to stop.\n`,
+);
+missionLog.info(`web server on ${ORIGIN}${cert ? ` + https:${HTTPS_PORT}` : ''}`);

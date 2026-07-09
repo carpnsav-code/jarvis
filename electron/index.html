@@ -123,6 +123,7 @@
         background: var(--panel); border: 1px solid var(--cyan-dim); border-radius: 5px; cursor: pointer;
         text-transform: uppercase; transition: color .2s, box-shadow .2s, background .2s; }
       .btn:hover { color: var(--bg); background: var(--cyan); box-shadow: 0 0 22px var(--cyan); }
+      #talk.recording { background: var(--cyan); color: var(--bg); box-shadow: 0 0 26px var(--cyan); }
 
       ::-webkit-scrollbar { width: 6px; }
       ::-webkit-scrollbar-thumb { background: var(--cyan-dim); border-radius: 6px; }
@@ -182,6 +183,7 @@
 
       <div class="bar">
         <input id="utterance" placeholder="Just talk when I'm quiet — say “Jarvis” to cut me off while I'm speaking" autofocus />
+        <button class="btn" id="talk">🎤 Hold to talk</button>
         <button class="btn" id="go">Send</button>
       </div>
     </div>
