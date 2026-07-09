@@ -36,6 +36,7 @@ const elevenlabs = require('./elevenlabs');
 const outcome = require('./outcome');
 const { parseCreateCommand, createFile } = require('./fileCreation');
 const { parseProductivityCommand, resolveProductivity } = require('./productivity');
+const { loadKnowledge } = require('./knowledge');
 const {
   parseSpotifyCommand,
   runSpotifyCommand,
@@ -71,6 +72,7 @@ const brain = new GroqBrain({
   keys: loadGroqKeys(),
   model: process.env.GROQ_MODEL,
   personality: process.env.GROQ_PERSONALITY,
+  knowledge: loadKnowledge(),
   factsProvider: () => memory.factsContext(),
 });
 

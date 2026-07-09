@@ -1,18 +1,15 @@
 'use strict';
 
 /**
- * Renderer: the voice loop (guide Section 4) + the command-center UI + the
- * YouTube iframe relay.
+ * Renderer: the voice loop with hard barge-in + the holographic UI hooks.
  *
- * Voice input — always-on Web Speech recognition. Final transcripts go to the
- * main process (routed to a device command or the brain) and the spoken reply
- * is played back. The orb reflects state (standby / listening / thinking /
- * speaking) and the input bar pulses while listening.
+ * Voice input — always-on Web Speech recognition with interim results. The
+ * instant you start speaking while Jarvis is talking, he stops (barge-in). A
+ * self-echo filter keeps his own voice (picked up by the mic) from either
+ * barging in on himself or being sent back as a command.
  *
- * Voice output — ElevenLabs audio when the main process provides it, otherwise
- * the Web Speech API voice (deep male, rate 0.82, pitch 0.6, 250ms between
- * sentences). The reply text is revealed only once audio starts, so voice and
- * text feel synchronised.
+ * Voice output — ElevenLabs audio when the server provides it, else the Web
+ * Speech voice. Playback is interruptible: barge-in cancels it immediately.
  */
 
 // --- UI state -------------------------------------------------------------------
@@ -47,11 +44,9 @@ function setChip(el, on, label) {
 // --- YouTube iframe relay -------------------------------------------------------
 const EMBED_ORIGIN = 'https://www.youtube-nocookie.com';
 const COMMAND_DELAY_MS = 700;
-
 const iframe = document.getElementById('player');
 let playerReady = false;
 const pendingPlayer = [];
-
 function postToPlayer(message) {
   if (!iframe.contentWindow) return;
   iframe.contentWindow.postMessage(JSON.stringify(message), EMBED_ORIGIN);
@@ -97,17 +92,46 @@ document.getElementById('spotify-auth').addEventListener('click', async () => {
   else showText(res.error || 'Spotify authorization failed.');
 });
 
-// --- Voice output ---------------------------------------------------------------
+// --- Voice output (interruptible) ----------------------------------------------
 let speakerMuted = false;
+let speaking = false;
+let currentAudio = null;
+let speechDone = null; // resolver for the in-flight speak()
+let lastSpokenWords = []; // for the echo filter
+let echoGuardUntil = 0;
 
-function pickVoice() {
-  const voices = window.speechSynthesis.getVoices();
-  return (
-    voices.find((v) => /male/i.test(v.name) && /en/i.test(v.lang)) ||
-    voices.find((v) => /(daniel|alex|david|george|fred)/i.test(v.name)) ||
-    voices.find((v) => /en/i.test(v.lang)) ||
-    voices[0]
-  );
+function words(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+}
+
+/** Is this transcript most likely Jarvis's own voice echoing back? */
+function isEcho(transcript) {
+  if (!speaking && Date.now() > echoGuardUntil) return false;
+  const t = words(transcript);
+  if (!t.length || !lastSpokenWords.length) return false;
+  const spoken = new Set(lastSpokenWords);
+  const overlap = t.filter((w) => spoken.has(w)).length / t.length;
+  return overlap >= 0.5;
+}
+
+/** Stop any current speech immediately (barge-in / new turn). */
+function stopSpeaking() {
+  if (currentAudio) {
+    try {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+    } catch {
+      /* ignore */
+    }
+    currentAudio = null;
+  }
+  window.speechSynthesis.cancel();
+  speaking = false;
+  if (speechDone) {
+    const r = speechDone;
+    speechDone = null;
+    r();
+  }
 }
 
 function speakWebSpeech(text) {
@@ -115,27 +139,42 @@ function speakWebSpeech(text) {
     const sentences = text.match(/[^.!?]+[.!?]*/g) || [text];
     let i = 0;
     const next = () => {
-      if (i >= sentences.length) return resolve();
+      if (!speaking || i >= sentences.length) return resolve();
       const u = new SpeechSynthesisUtterance(sentences[i].trim());
       const v = pickVoice();
       if (v) u.voice = v;
-      u.rate = 0.82;
-      u.pitch = 0.6;
+      u.rate = 0.9;
+      u.pitch = 0.7;
       i += 1;
-      u.onend = () => setTimeout(next, 250); // 250ms between sentences
-      u.onerror = () => setTimeout(next, 250);
+      u.onend = () => setTimeout(next, 200);
+      u.onerror = () => setTimeout(next, 200);
       window.speechSynthesis.speak(u);
     };
     next();
   });
 }
+function pickVoice() {
+  const voices = window.speechSynthesis.getVoices();
+  return (
+    voices.find((v) => /(daniel|george|arthur|oliver)/i.test(v.name)) ||
+    voices.find((v) => /en-GB/i.test(v.lang)) ||
+    voices.find((v) => /male/i.test(v.name) && /en/i.test(v.lang)) ||
+    voices.find((v) => /en/i.test(v.lang)) ||
+    voices[0]
+  );
+}
 
-/** Speak a reply; reveal text only once audio starts so the two stay in sync. */
 async function speak(text) {
   if (!text) return;
+  stopSpeaking();
   setState('speaking');
+  lastSpokenWords = words(text);
+  speaking = true;
+
   if (speakerMuted) {
     showText(text);
+    speaking = false;
+    echoGuardUntil = Date.now() + 1200;
     return;
   }
 
@@ -145,19 +184,35 @@ async function speak(text) {
   } catch {
     audio = null;
   }
+  if (!speaking) return; // barged-in while fetching audio
 
   if (audio) {
-    const el = new Audio(audio);
-    el.addEventListener('playing', () => showText(text), { once: true });
-    await el.play().catch(() => showText(text));
-    await new Promise((r) => el.addEventListener('ended', r, { once: true }));
+    await new Promise((resolve) => {
+      speechDone = resolve;
+      const el = new Audio(audio);
+      currentAudio = el;
+      el.addEventListener('playing', () => showText(text), { once: true });
+      el.addEventListener('ended', () => {
+        speechDone = null;
+        resolve();
+      }, { once: true });
+      el.play().catch(() => {
+        showText(text);
+        speechDone = null;
+        resolve();
+      });
+    });
   } else {
     showText(text);
     await speakWebSpeech(text);
   }
+
+  speaking = false;
+  currentAudio = null;
+  echoGuardUntil = Date.now() + 1200;
 }
 
-// --- Send an utterance through the assistant ------------------------------------
+// --- Send an utterance ----------------------------------------------------------
 async function handleUtterance(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed) return;
@@ -175,11 +230,10 @@ input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') handleUtterance(input.value);
 });
 
-// --- Voice input: always-on Web Speech recognition ------------------------------
+// --- Voice input: always-on recognition with barge-in --------------------------
 const micBtn = document.getElementById('mic-toggle');
 const speakerBtn = document.getElementById('speaker-toggle');
 const bar = document.querySelector('.bar');
-
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
 let micMuted = false;
@@ -187,7 +241,6 @@ let micMuted = false;
 function setListening(on) {
   const active = on && !micMuted;
   bar.classList.toggle('listening', active);
-  // Don't stomp on thinking/speaking states.
   if (active && stage.dataset.state === 'idle') setState('listening');
   if (!active && stage.dataset.state === 'listening') setState('idle');
 }
@@ -195,7 +248,7 @@ function setListening(on) {
 if (SpeechRecognition) {
   recognition = new SpeechRecognition();
   recognition.continuous = true;
-  recognition.interimResults = false;
+  recognition.interimResults = true; // needed to catch the *start* of your speech
   recognition.lang = 'en-US';
 
   recognition.onstart = () => setListening(true);
@@ -203,20 +256,32 @@ if (SpeechRecognition) {
     setListening(false);
     if (!micMuted) {
       try {
-        recognition.start(); // keep it always-on
+        recognition.start();
       } catch {
         /* already starting */
       }
     }
   };
+  recognition.onerror = () => setListening(false);
+
   recognition.onresult = (event) => {
     const result = event.results[event.results.length - 1];
+    const transcript = result[0].transcript.trim();
+    if (!transcript) return;
+
+    const echo = isEcho(transcript);
+
+    // You started talking while Jarvis was speaking → he shuts up. Now.
+    if (speaking && !echo) {
+      stopSpeaking();
+      setState('listening');
+    }
+
     if (result.isFinal) {
-      const text = result[0].transcript.trim();
-      if (text) handleUtterance(text);
+      if (echo) return; // that was Jarvis's own voice — ignore it
+      handleUtterance(transcript);
     }
   };
-  recognition.onerror = () => setListening(false);
 
   try {
     recognition.start();
@@ -246,12 +311,12 @@ micBtn.addEventListener('click', () => {
 speakerBtn.addEventListener('click', () => {
   speakerMuted = !speakerMuted;
   setChip(speakerBtn, !speakerMuted, speakerMuted ? 'Speaker off' : 'Speaker on');
-  if (speakerMuted) window.speechSynthesis.cancel();
+  if (speakerMuted) stopSpeaking();
 });
 
 // --- Startup greeting -----------------------------------------------------------
 window.addEventListener('load', async () => {
-  window.speechSynthesis.getVoices(); // nudge async voice list
+  window.speechSynthesis.getVoices();
   const greeting = await window.jarvis.greeting();
   appendLog('jarvis', greeting);
   await speak(greeting);

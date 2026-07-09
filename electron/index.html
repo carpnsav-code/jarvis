@@ -3,168 +3,143 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>JARVIS</title>
+    <title>J.A.R.V.I.S.</title>
     <style>
       :root {
-        --bg: #0a0e1a;
-        --bg-2: #0d1424;
-        --panel: rgba(18, 27, 48, 0.55);
-        --panel-brd: rgba(74, 128, 180, 0.28);
-        --cyan: #22d3ee;
-        --cyan-dim: rgba(34, 211, 238, 0.55);
-        --text: #dce7f5;
-        --text-dim: #7d8db0;
-        --green: #1db954;
-        --danger: #ff5c72;
-        --font: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        --cyan: #4de3ff;
+        --cyan-bright: #b8f6ff;
+        --cyan-dim: rgba(77, 227, 255, 0.5);
+        --amber: #ffcf6b;
+        --bg: #02060f;
+        --panel: rgba(10, 26, 46, 0.42);
+        --panel-brd: rgba(77, 227, 255, 0.28);
+        --text: #cfeeff;
+        --text-dim: #5f86a6;
         --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+        --font: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
       }
-
       * { box-sizing: border-box; }
-      html, body { height: 100%; }
+      html, body { height: 100%; margin: 0; }
       body {
-        margin: 0;
         font-family: var(--font);
         color: var(--text);
-        background:
-          radial-gradient(1200px 700px at 50% -10%, #14203a 0%, transparent 60%),
-          radial-gradient(900px 600px at 90% 110%, #10182c 0%, transparent 55%),
-          var(--bg);
+        background: var(--bg);
         overflow: hidden;
-      }
-      /* faint grid */
-      body::before {
-        content: "";
-        position: fixed; inset: 0;
-        background-image:
-          linear-gradient(rgba(74, 128, 180, 0.05) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(74, 128, 180, 0.05) 1px, transparent 1px);
-        background-size: 44px 44px;
-        mask-image: radial-gradient(circle at 50% 40%, #000 0%, transparent 78%);
-        pointer-events: none;
+        text-shadow: 0 0 12px rgba(77, 227, 255, 0.25);
       }
 
-      .app { position: relative; height: 100vh; display: flex; flex-direction: column; padding: 18px 22px 20px; }
+      /* holographic projection canvas */
+      #holo { position: fixed; inset: 0; z-index: 0; }
 
-      /* --- top bar --- */
+      /* scanlines + vignette + flicker */
+      .fx {
+        position: fixed; inset: 0; z-index: 2; pointer-events: none;
+        background:
+          repeating-linear-gradient(0deg, rgba(0,0,0,0) 0 2px, rgba(0, 20, 30, 0.25) 2px 3px),
+          radial-gradient(120% 100% at 50% 40%, transparent 55%, rgba(0,0,0,0.75) 100%);
+        mix-blend-mode: multiply;
+        animation: flicker 6s infinite;
+      }
+      @keyframes flicker { 0%,97%,100% { opacity: 1; } 98% { opacity: 0.82; } 99% { opacity: 0.94; } }
+
+      /* HUD corner brackets */
+      .hud { position: fixed; inset: 14px; z-index: 3; pointer-events: none; }
+      .hud::before, .hud::after,
+      .hud .bl, .hud .br {
+        content: ""; position: absolute; width: 46px; height: 46px;
+        border: 1px solid var(--cyan-dim);
+      }
+      .hud::before { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+      .hud::after { top: 0; right: 0; border-left: 0; border-bottom: 0; }
+      .hud .bl { bottom: 0; left: 0; border-right: 0; border-top: 0; }
+      .hud .br { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+
+      .app { position: relative; z-index: 5; height: 100vh; display: flex; flex-direction: column; padding: 26px 34px; }
+
+      /* top bar */
       .topbar { display: flex; align-items: center; justify-content: space-between; }
-      .brand { display: flex; align-items: baseline; gap: 12px; }
-      .wordmark { font-size: 22px; font-weight: 700; letter-spacing: 8px; color: #fff; }
-      .wordmark b { color: var(--cyan); text-shadow: 0 0 18px var(--cyan-dim); }
-      .subtitle { font: 11px/1 var(--mono); letter-spacing: 3px; color: var(--text-dim); text-transform: uppercase; }
-
-      .status { display: flex; align-items: center; gap: 10px; }
+      .brand { display: flex; align-items: baseline; gap: 14px; }
+      .wordmark { font-size: 22px; font-weight: 700; letter-spacing: 12px; color: var(--cyan-bright);
+        text-shadow: 0 0 22px var(--cyan); }
+      .subtitle { font: 10px/1 var(--mono); letter-spacing: 4px; color: var(--text-dim); text-transform: uppercase; }
+      .status { display: flex; gap: 10px; }
       .chip {
-        display: inline-flex; align-items: center; gap: 7px;
-        font: 11px/1 var(--mono); letter-spacing: 1px; text-transform: uppercase;
-        color: var(--text-dim);
-        padding: 8px 12px; border-radius: 999px;
-        background: var(--panel); border: 1px solid var(--panel-brd);
-        cursor: pointer; user-select: none;
-        transition: color .2s, border-color .2s, background .2s;
+        display: inline-flex; align-items: center; gap: 8px;
+        font: 10px/1 var(--mono); letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-dim);
+        padding: 9px 13px; border: 1px solid var(--panel-brd); border-radius: 4px;
+        background: var(--panel); backdrop-filter: blur(6px); cursor: pointer; user-select: none;
+        transition: color .2s, border-color .2s, box-shadow .2s;
       }
-      .chip:hover { color: var(--text); border-color: var(--cyan-dim); }
-      .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); }
-      .chip.off { color: #56617d; }
-      .chip.off .dot { background: #56617d; box-shadow: none; }
+      .chip:hover { color: var(--cyan-bright); border-color: var(--cyan); box-shadow: 0 0 16px var(--cyan-dim); }
+      .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+      .chip.off { color: #3a4a5a; } .chip.off .dot { background: #3a4a5a; box-shadow: none; }
 
-      /* --- main --- */
-      .main { flex: 1; display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 20px; min-height: 0; margin-top: 14px; }
-      .stage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px; min-height: 0; }
+      /* main */
+      .main { flex: 1; display: grid; grid-template-columns: 1fr 340px; gap: 26px; min-height: 0; margin-top: 10px; }
+      .stage { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 4vh; }
+      .state-label { font: 12px/1 var(--mono); letter-spacing: 8px; text-transform: uppercase; color: var(--cyan);
+        opacity: .9; margin-bottom: 14px; }
+      .stage[data-state="thinking"] .state-label { color: var(--amber); }
+      .response { max-width: 560px; text-align: center; font-size: 20px; line-height: 1.5; color: var(--cyan-bright);
+        min-height: 60px; text-shadow: 0 0 18px var(--cyan-dim); }
 
-      /* voice orb */
-      .orb-wrap { position: relative; width: 260px; height: 260px; display: grid; place-items: center; }
-      .ring { position: absolute; border-radius: 50%; border: 1px solid var(--panel-brd); }
-      .ring.r1 { width: 100%; height: 100%; animation: spin 22s linear infinite; border-top-color: var(--cyan-dim); }
-      .ring.r2 { width: 78%; height: 78%; animation: spin 16s linear infinite reverse; border-left-color: var(--cyan-dim); }
-      .ring.r3 { width: 56%; height: 56%; border-color: rgba(74,128,180,0.18); }
-      .orb {
-        width: 40%; height: 40%; border-radius: 50%;
-        background: radial-gradient(circle at 35% 30%, #7ff0ff 0%, var(--cyan) 40%, #0e7490 100%);
-        box-shadow: 0 0 40px var(--cyan-dim), inset 0 0 30px rgba(255,255,255,0.25);
-        transition: transform .3s ease, box-shadow .3s ease;
-      }
-      .state-label { font: 12px/1 var(--mono); letter-spacing: 4px; text-transform: uppercase; color: var(--text-dim); }
-
-      /* orb states */
-      .stage[data-state="listening"] .orb { animation: breathe 1.6s ease-in-out infinite; box-shadow: 0 0 60px var(--cyan); }
-      .stage[data-state="listening"] .state-label { color: var(--cyan); }
-      .stage[data-state="thinking"] .orb { animation: flicker 0.9s ease-in-out infinite; }
-      .stage[data-state="thinking"] .ring.r1,
-      .stage[data-state="thinking"] .ring.r2 { animation-duration: 3s; border-top-color: var(--cyan); }
-      .stage[data-state="thinking"] .state-label { color: #ffd166; }
-      .stage[data-state="speaking"] .orb { animation: pulseOrb 0.5s ease-in-out infinite; box-shadow: 0 0 70px var(--cyan); }
-      .stage[data-state="speaking"] .state-label { color: var(--cyan); }
-
-      @keyframes spin { to { transform: rotate(360deg); } }
-      @keyframes breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.12); } }
-      @keyframes pulseOrb { 0%,100% { transform: scale(1); } 50% { transform: scale(1.22); } }
-      @keyframes flicker { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
-
-      .response {
-        max-width: 460px; text-align: center; font-size: 18px; line-height: 1.5;
-        color: var(--text); min-height: 54px;
-      }
-
-      /* right column panels */
-      .side { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+      /* side HUD panels */
+      .side { display: flex; flex-direction: column; gap: 18px; min-height: 0; }
       .panel {
-        background: var(--panel); border: 1px solid var(--panel-brd); border-radius: 14px;
-        padding: 14px 16px; backdrop-filter: blur(8px);
+        position: relative; background: var(--panel); border: 1px solid var(--panel-brd); border-radius: 6px;
+        padding: 14px 16px; backdrop-filter: blur(10px);
       }
-      .panel h2 { margin: 0 0 10px; font: 11px/1 var(--mono); letter-spacing: 3px; text-transform: uppercase; color: var(--cyan); font-weight: 600; }
-      .player { position: relative; width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 10px; overflow: hidden; }
+      .panel::before, .panel::after {
+        content: ""; position: absolute; width: 12px; height: 12px; border: 1px solid var(--cyan);
+      }
+      .panel::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+      .panel::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+      .panel h2 { margin: 0 0 10px; font: 10px/1 var(--mono); letter-spacing: 3px; text-transform: uppercase;
+        color: var(--cyan); }
+      .player { position: relative; width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 4px; overflow: hidden;
+        border: 1px solid var(--panel-brd); }
       .player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-      .nowplaying { display: none; align-items: center; gap: 10px; font-weight: 600; color: #eafff2; }
-      .nowplaying::before { content: "♪"; color: var(--green); font-size: 18px; }
+      .nowplaying { display: none; align-items: center; gap: 8px; font-weight: 600; color: var(--cyan-bright); font-size: 14px; }
       .nowplaying[data-on="1"] { display: flex; }
+      .log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; min-height: 0; }
+      .log .entry { font-size: 13px; line-height: 1.45; }
+      .log .you { color: var(--text-dim); } .log .jarvis { color: var(--cyan-bright); }
+      .log b { font: 9px/1 var(--mono); letter-spacing: 2px; text-transform: uppercase; margin-right: 8px; opacity: .7; }
 
-      .log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-      .log .entry { font-size: 13px; line-height: 1.4; }
-      .log .you { color: var(--text-dim); }
-      .log .you b, .log .jarvis b { font: 10px/1 var(--mono); letter-spacing: 2px; text-transform: uppercase; margin-right: 8px; }
-      .log .you b { color: #7d8db0; }
-      .log .jarvis b { color: var(--cyan); }
-
-      /* --- command bar --- */
-      .bar { display: flex; gap: 10px; align-items: center; margin-top: 16px; }
+      /* command bar */
+      .bar { display: flex; gap: 12px; align-items: center; margin-top: 16px; }
       .bar input {
-        flex: 1; padding: 14px 16px; font-size: 15px; color: var(--text);
-        background: rgba(10,16,30,0.7); border: 1px solid var(--panel-brd); border-radius: 12px;
-        outline: none; transition: border-color .2s, box-shadow .2s;
+        flex: 1; padding: 15px 18px; font-size: 15px; color: var(--cyan-bright); font-family: var(--font);
+        background: rgba(4, 14, 26, 0.6); border: 1px solid var(--panel-brd); border-radius: 5px; outline: none;
+        transition: border-color .2s, box-shadow .2s;
       }
-      .bar input::placeholder { color: #56617d; }
-      .bar input:focus { border-color: var(--cyan-dim); }
-      .bar.listening input { border-color: var(--cyan); box-shadow: 0 0 0 0 rgba(34,211,238,.5); animation: pulseBar 1.6s infinite; }
+      .bar input::placeholder { color: #3f5a70; }
+      .bar input:focus { border-color: var(--cyan); box-shadow: 0 0 20px var(--cyan-dim); }
+      .bar.listening input { border-color: var(--cyan); animation: pulseBar 1.5s infinite; }
       @keyframes pulseBar {
-        0% { box-shadow: 0 0 0 0 rgba(34,211,238,.45); }
-        70% { box-shadow: 0 0 0 12px rgba(34,211,238,0); }
-        100% { box-shadow: 0 0 0 0 rgba(34,211,238,0); }
+        0% { box-shadow: 0 0 0 0 rgba(77,227,255,.4); } 70% { box-shadow: 0 0 0 14px rgba(77,227,255,0); }
+        100% { box-shadow: 0 0 0 0 rgba(77,227,255,0); }
       }
-      .btn {
-        padding: 13px 16px; font-size: 14px; font-family: var(--font); color: var(--text);
-        background: var(--panel); border: 1px solid var(--panel-brd); border-radius: 12px;
-        cursor: pointer; transition: border-color .2s, color .2s, background .2s;
-      }
-      .btn:hover { border-color: var(--cyan-dim); color: #fff; }
-      .btn.accent { background: rgba(34,211,238,0.12); border-color: var(--cyan-dim); color: var(--cyan); }
+      .btn { padding: 14px 18px; font-size: 14px; font-family: var(--mono); letter-spacing: 1px; color: var(--cyan);
+        background: var(--panel); border: 1px solid var(--cyan-dim); border-radius: 5px; cursor: pointer;
+        text-transform: uppercase; transition: color .2s, box-shadow .2s, background .2s; }
+      .btn:hover { color: var(--bg); background: var(--cyan); box-shadow: 0 0 22px var(--cyan); }
 
-      ::-webkit-scrollbar { width: 8px; }
-      ::-webkit-scrollbar-thumb { background: rgba(74,128,180,0.3); border-radius: 8px; }
-
-      @media (max-width: 820px) {
-        .main { grid-template-columns: 1fr; }
-        .side { display: none; }
-      }
+      ::-webkit-scrollbar { width: 6px; }
+      ::-webkit-scrollbar-thumb { background: var(--cyan-dim); border-radius: 6px; }
+      @media (max-width: 900px) { .main { grid-template-columns: 1fr; } .side { display: none; } }
     </style>
   </head>
   <body>
+    <canvas id="holo"></canvas>
+    <div class="fx"></div>
+    <div class="hud"><span class="bl"></span><span class="br"></span></div>
+
     <div class="app">
-      <!-- top bar -->
       <div class="topbar">
         <div class="brand">
-          <div class="wordmark">JAR<b>V</b>IS</div>
-          <div class="subtitle">Voice Command Interface</div>
+          <div class="wordmark">J.A.R.V.I.S.</div>
+          <div class="subtitle">Just A Rather Very Intelligent System</div>
         </div>
         <div class="status">
           <span class="chip" id="conn"><span class="dot"></span> Online</span>
@@ -174,19 +149,11 @@
         </div>
       </div>
 
-      <!-- main -->
       <div class="main">
         <div class="stage" id="stage" data-state="idle">
-          <div class="orb-wrap">
-            <div class="ring r1"></div>
-            <div class="ring r2"></div>
-            <div class="ring r3"></div>
-            <div class="orb"></div>
-          </div>
           <div class="state-label" id="state-label">Standby</div>
           <div class="response" id="out">Initializing…</div>
         </div>
-
         <div class="side">
           <div class="panel">
             <h2>Now Playing</h2>
@@ -202,13 +169,114 @@
         </div>
       </div>
 
-      <!-- command bar -->
       <div class="bar">
-        <input id="utterance" placeholder="Speak, or type — “what's the weather in Paris” · “play blinding lights by the weeknd” · “open calculator”" autofocus />
-        <button class="btn accent" id="go">Send</button>
+        <input id="utterance" placeholder="Speak, or type — “what's the weather”  ·  “open calculator”  ·  “play blinding lights by the weeknd”" autofocus />
+        <button class="btn" id="go">Send</button>
       </div>
     </div>
 
+    <script>
+      // Holographic core: rotating rings + a state-reactive projected waveform.
+      (function () {
+        const canvas = document.getElementById('holo');
+        const ctx = canvas.getContext('2d');
+        const stage = document.getElementById('stage');
+        let W, H, cx, cy, R;
+        function resize() {
+          W = canvas.width = innerWidth * devicePixelRatio;
+          H = canvas.height = innerHeight * devicePixelRatio;
+          canvas.style.width = innerWidth + 'px';
+          canvas.style.height = innerHeight + 'px';
+          cx = W * 0.42; cy = H * 0.44; R = Math.min(W, H) * 0.17;
+        }
+        addEventListener('resize', resize); resize();
+
+        const particles = Array.from({ length: 60 }, () => ({
+          a: Math.random() * Math.PI * 2, r: R * (0.4 + Math.random() * 1.4),
+          s: 0.2 + Math.random() * 0.8, z: Math.random(),
+        }));
+
+        function stateAmp(state, t) {
+          if (state === 'speaking') return 1.0 + Math.sin(t * 9) * 0.5 + Math.sin(t * 17) * 0.25;
+          if (state === 'listening') return 0.5 + Math.sin(t * 3) * 0.28;
+          if (state === 'thinking') return 0.7 + (Math.random() - 0.5) * 0.9;
+          return 0.32 + Math.sin(t * 1.4) * 0.14; // idle breathing
+        }
+        function color(state) {
+          return state === 'thinking' ? [255, 207, 107] : [77, 227, 255];
+        }
+
+        let t = 0;
+        function frame() {
+          t += 0.016;
+          const state = stage.dataset.state || 'idle';
+          const [cr, cg, cb] = color(state);
+          const amp = stateAmp(state, t);
+          ctx.clearRect(0, 0, W, H);
+
+          // projection base glow
+          const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 3.2);
+          g.addColorStop(0, `rgba(${cr},${cg},${cb},0.10)`);
+          g.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.lineCap = 'round';
+
+          // rotating dashed rings
+          for (let i = 0; i < 4; i++) {
+            const rr = R * (0.9 + i * 0.28);
+            ctx.save();
+            ctx.rotate(t * (i % 2 ? -0.4 : 0.55) + i);
+            ctx.strokeStyle = `rgba(${cr},${cg},${cb},${0.35 - i * 0.06})`;
+            ctx.lineWidth = 1.5 * devicePixelRatio;
+            ctx.setLineDash([R * 0.5, R * (0.3 + i * 0.2)]);
+            ctx.shadowBlur = 18; ctx.shadowColor = `rgba(${cr},${cg},${cb},0.8)`;
+            ctx.beginPath(); ctx.arc(0, 0, rr, 0, Math.PI * 2); ctx.stroke();
+            ctx.restore();
+          }
+
+          // reactive waveform ring
+          ctx.beginPath();
+          const N = 160;
+          for (let k = 0; k <= N; k++) {
+            const ang = (k / N) * Math.PI * 2;
+            const wob = Math.sin(ang * 6 + t * 4) + Math.sin(ang * 11 - t * 6) * 0.5;
+            const rr = R * (0.72 + 0.10 * amp * wob);
+            const x = Math.cos(ang) * rr, y = Math.sin(ang) * rr;
+            k === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+          }
+          ctx.closePath();
+          ctx.strokeStyle = `rgba(${cr},${cg},${cb},0.9)`;
+          ctx.lineWidth = 2 * devicePixelRatio;
+          ctx.shadowBlur = 26; ctx.shadowColor = `rgba(${cr},${cg},${cb},1)`;
+          ctx.setLineDash([]); ctx.stroke();
+
+          // core sphere
+          const cores = R * (0.34 + 0.05 * amp);
+          const cg2 = ctx.createRadialGradient(-cores * 0.3, -cores * 0.3, 0, 0, 0, cores);
+          cg2.addColorStop(0, `rgba(${cr + 120 > 255 ? 255 : cr + 120},255,255,0.95)`);
+          cg2.addColorStop(0.5, `rgba(${cr},${cg},${cb},0.8)`);
+          cg2.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+          ctx.fillStyle = cg2; ctx.shadowBlur = 40; ctx.shadowColor = `rgba(${cr},${cg},${cb},1)`;
+          ctx.beginPath(); ctx.arc(0, 0, cores, 0, Math.PI * 2); ctx.fill();
+
+          // floating hologram particles
+          ctx.shadowBlur = 8;
+          for (const p of particles) {
+            p.a += 0.002 * p.s; p.z += 0.003 * p.s; if (p.z > 1) p.z = 0;
+            const rr = p.r * (0.8 + p.z * 0.5);
+            const x = Math.cos(p.a) * rr, y = Math.sin(p.a) * rr - p.z * R;
+            ctx.fillStyle = `rgba(${cr},${cg},${cb},${(1 - p.z) * 0.5})`;
+            ctx.beginPath(); ctx.arc(x, y, 1.4 * devicePixelRatio, 0, Math.PI * 2); ctx.fill();
+          }
+          ctx.restore();
+          requestAnimationFrame(frame);
+        }
+        frame();
+      })();
+    </script>
     <script src="renderer.js"></script>
   </body>
 </html>

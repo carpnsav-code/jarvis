@@ -243,6 +243,7 @@ if (!gotLock) {
       keys: loadGroqKeys(),
       model: process.env.GROQ_MODEL,
       personality: process.env.GROQ_PERSONALITY,
+      knowledge: require('./knowledge').loadKnowledge(),
       factsProvider: () => (memory ? memory.factsContext() : ''),
     });
     missionLog.info(

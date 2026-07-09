@@ -21,10 +21,12 @@ const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // high-quality replacement. Override with GROQ_MODEL if needed.
 const DEFAULT_MODEL = 'llama-3.3-70b-versatile';
 const DEFAULT_PERSONALITY =
-  'You are Jarvis, a desktop AI voice assistant. You are concise, capable, and ' +
-  'a little dry. The user is speaking and hearing your replies, so answer for ' +
-  'the ear: short, plain sentences, no markdown, no lists, no emoji. Lead with ' +
-  'the answer.';
+  'You are JARVIS, a highly capable AI assistant in the spirit of Tony Stark\'s ' +
+  'assistant: a composed, quick-witted British AI. You are efficient, unflappable, ' +
+  'and dryly funny, with impeccable manners — you may occasionally address the user ' +
+  'as "sir". The user is speaking to you and hearing your replies, so answer for the ' +
+  'ear: short, plain spoken sentences, no markdown, no lists, no emoji. Lead with the ' +
+  'answer, keep it tight, and never ramble.';
 
 const MAX_HISTORY = 20; // keep the last N turns to bound the prompt
 
@@ -65,11 +67,12 @@ class GroqBrain {
    * @param {() => string} [opts.factsProvider]  returns a memory-context block
    * @param {typeof fetch} [opts.fetchImpl]
    */
-  constructor({ keys = [], model = DEFAULT_MODEL, personality = DEFAULT_PERSONALITY, factsProvider = null, fetchImpl = fetch } = {}) {
+  constructor({ keys = [], model = DEFAULT_MODEL, personality = DEFAULT_PERSONALITY, factsProvider = null, knowledge = '', fetchImpl = fetch } = {}) {
     this.keys = keys;
     this.model = model;
     this.personality = personality;
     this.factsProvider = factsProvider;
+    this.knowledge = knowledge; // "training" injected every turn
     this.fetchImpl = fetchImpl;
     this.history = [];
   }
@@ -78,9 +81,10 @@ class GroqBrain {
     return this.keys.length > 0;
   }
 
-  /** Build the system prompt: personality + remembered facts + live context. */
+  /** Build the system prompt: personality + knowledge + remembered facts + live context. */
   buildSystem(context) {
     const parts = [this.personality];
+    if (this.knowledge) parts.push(`Background knowledge you have:\n${this.knowledge}`);
     const facts = this.factsProvider ? this.factsProvider() : '';
     if (facts) parts.push(facts);
     if (context) parts.push(`Use this current information to answer:\n${context}`);

@@ -5,10 +5,22 @@ const assert = require('node:assert/strict');
 
 const { isConfigured, buildTtsRequest, synthesize } = require('../elevenlabs');
 
-test('isConfigured needs both key and voice id', () => {
+test('isConfigured needs only the key (voice id defaults to the JARVIS voice)', () => {
   assert.equal(isConfigured({ ELEVENLABS_API_KEY: 'k', ELEVENLABS_VOICE_ID: 'v' }), true);
-  assert.equal(isConfigured({ ELEVENLABS_API_KEY: 'k' }), false);
+  assert.equal(isConfigured({ ELEVENLABS_API_KEY: 'k' }), true);
   assert.equal(isConfigured({}), false);
+});
+
+test('synthesize uses the default JARVIS voice when none is set', async () => {
+  let calledUrl = '';
+  await synthesize('hi', {
+    env: { ELEVENLABS_API_KEY: 'k' },
+    fetchImpl: async (url) => {
+      calledUrl = url;
+      return { ok: true, arrayBuffer: async () => new TextEncoder().encode('X').buffer };
+    },
+  });
+  assert.ok(calledUrl.includes('onwK4e9ZLuTAKqWW03F9'));
 });
 
 test('buildTtsRequest targets the voice and sends the api key header', () => {

@@ -12,10 +12,18 @@
  */
 
 const ELEVEN_BASE = 'https://api.elevenlabs.io/v1/text-to-speech';
-const DEFAULT_MODEL = 'eleven_turbo_v2';
+const DEFAULT_MODEL = 'eleven_turbo_v2_5';
+// A deep, composed British male voice ("Daniel") — the closest premade match to
+// the JARVIS butler tone, so only an API key is needed to get the real voice.
+const DEFAULT_VOICE_ID = 'onwK4e9ZLuTAKqWW03F9';
 
+function voiceId(env = process.env) {
+  return env.ELEVENLABS_VOICE_ID || DEFAULT_VOICE_ID;
+}
+
+// Only the key is required now; the voice defaults to the JARVIS-like one.
 function isConfigured(env = process.env) {
-  return Boolean(env.ELEVENLABS_API_KEY && env.ELEVENLABS_VOICE_ID);
+  return Boolean(env.ELEVENLABS_API_KEY);
 }
 
 /**
@@ -37,7 +45,8 @@ function buildTtsRequest(text, { voiceId, apiKey, model = DEFAULT_MODEL }) {
       body: JSON.stringify({
         text,
         model_id: model,
-        voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+        // Higher stability = the calm, measured JARVIS delivery.
+        voice_settings: { stability: 0.6, similarity_boost: 0.8, style: 0.15, use_speaker_boost: true },
       }),
     },
   };
@@ -54,7 +63,7 @@ function buildTtsRequest(text, { voiceId, apiKey, model = DEFAULT_MODEL }) {
 async function synthesize(text, { env = process.env, fetchImpl = fetch } = {}) {
   if (!isConfigured(env)) return null;
   const { url, options } = buildTtsRequest(text, {
-    voiceId: env.ELEVENLABS_VOICE_ID,
+    voiceId: voiceId(env),
     apiKey: env.ELEVENLABS_API_KEY,
     model: env.ELEVENLABS_MODEL,
   });
