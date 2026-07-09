@@ -17,9 +17,9 @@
  */
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-// The guide's llama3-70b-8192 was decommissioned by Groq; this is a current,
-// high-quality replacement. Override with GROQ_MODEL if needed.
-const DEFAULT_MODEL = 'llama-3.3-70b-versatile';
+// Default to Groq's fastest model for near-instant voice replies. Set
+// GROQ_MODEL=llama-3.3-70b-versatile if you want higher quality over speed.
+const DEFAULT_MODEL = 'llama-3.1-8b-instant';
 const DEFAULT_PERSONALITY =
   'You are JARVIS, a highly capable AI assistant in the spirit of Tony Stark\'s ' +
   'assistant: a composed, quick-witted British AI. You are efficient, unflappable, ' +

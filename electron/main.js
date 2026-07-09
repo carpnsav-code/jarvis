@@ -25,8 +25,7 @@ const { loadApps, handleCommand } = require('./computerControl');
 const { startServer } = require('./server');
 const { searchYouTube } = require('./youtube');
 const { parseVideoCommand, runVideoCommand } = require('./videoControl');
-const { search } = require('./webSearch');
-const { searchGate } = require('./searchGate');
+const { search, classifyQuery } = require('./webSearch');
 const { MemoryStore } = require('./memoryStore');
 const { extractInBackground } = require('./memoryExtractor');
 const missionLog = require('./missionLog');
@@ -80,17 +79,24 @@ const QUESTION_LIKE =
 // He only *acts* (launches an app / opens a site) on an explicit command verb.
 const LAUNCH_VERB = /\b(open|launch|start|run|go to|bring up|pull up|fire up)\b/;
 
-/** Run the search gate, then search if live data is actually wanted. */
+/** Direct search (used by the assistant:search channel). */
 async function runSearch(text) {
-  const gate = await searchGate(text);
-  if (!gate.live) {
-    return { ok: true, action: 'answer', search: false, gate };
-  }
   try {
-    const result = await search(text);
-    return { ok: true, action: 'search', gate, ...result };
+    return { ok: true, action: 'search', ...(await search(text)) };
   } catch (err) {
-    return { ok: false, action: 'search', gate, error: err.message };
+    return { ok: false, action: 'search', error: err.message };
+  }
+}
+
+// Cheap, no-AI decision: only hit the web when the question needs live data.
+const WANTS_WEB = /\b(search|look up|lookup|google|latest|news|headlines|current|currently|today|right now|score|scores|stock|weather|forecast|price|followers|who won|how much)\b/;
+async function searchContext(text) {
+  const cls = classifyQuery(text);
+  if (cls.type === 'web' && !WANTS_WEB.test(String(text).toLowerCase())) return '';
+  try {
+    return outcome.searchToContext(await search(text));
+  } catch {
+    return '';
   }
 }
 
@@ -185,15 +191,13 @@ async function routeVoice(text) {
   const t = String(text || '').trim().toLowerCase();
   let context = '';
   if (QUESTION_LIKE.test(t)) {
-    const s = await runSearch(text);
-    if (s.action === 'search') context = outcome.searchToContext(s);
+    context = await searchContext(text);
   } else {
     if (LAUNCH_VERB.test(t)) {
       const launched = handleCommand({ action: text, target: text }, { apps });
       if (launched.ok) return { speech: outcome.launchSpeech(launched), handled: true, detail: launched };
     }
-    const s = await runSearch(text);
-    if (s.action === 'search') context = outcome.searchToContext(s);
+    context = await searchContext(text);
   }
 
   const reply = await brainReply(text, context);

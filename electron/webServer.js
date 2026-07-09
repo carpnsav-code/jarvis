@@ -26,8 +26,7 @@ const { execFile } = require('child_process');
 const { loadApps, handleCommand } = require('./computerControl');
 const { searchYouTube } = require('./youtube');
 const { parseVideoCommand, runVideoCommand } = require('./videoControl');
-const { search } = require('./webSearch');
-const { searchGate } = require('./searchGate');
+const { search, classifyQuery } = require('./webSearch');
 const { MemoryStore } = require('./memoryStore');
 const { extractInBackground } = require('./memoryExtractor');
 const missionLog = require('./missionLog');
@@ -92,13 +91,16 @@ const QUESTION_LIKE =
 // merely mentioning an app name never triggers it.
 const LAUNCH_VERB = /\b(open|launch|start|run|go to|bring up|pull up|fire up)\b/;
 
-async function runSearch(text) {
-  const gate = await searchGate(text);
-  if (!gate.live) return { action: 'answer' };
+// Cheap, no-AI decision: only hit the web when the question actually needs live
+// data. Specialised types (weather/market/instagram) or explicit search words.
+const WANTS_WEB = /\b(search|look up|lookup|google|latest|news|headlines|current|currently|today|right now|score|scores|stock|weather|forecast|price|followers|who won|how much)\b/;
+async function searchContext(text) {
+  const cls = classifyQuery(text);
+  if (cls.type === 'web' && !WANTS_WEB.test(text.toLowerCase())) return '';
   try {
-    return { action: 'search', ...(await search(text)) };
-  } catch (err) {
-    return { action: 'search', source: 'none', error: err.message };
+    return outcome.searchToContext(await search(text));
+  } catch {
+    return '';
   }
 }
 
@@ -188,8 +190,7 @@ async function routeVoice(text) {
   const t = String(text || '').trim().toLowerCase();
   let context = '';
   if (QUESTION_LIKE.test(t)) {
-    const s = await runSearch(text);
-    if (s.action === 'search') context = outcome.searchToContext(s);
+    context = await searchContext(text);
   } else {
     if (LAUNCH_VERB.test(t)) {
       const launched = handleCommand({ action: text, target: text }, { apps });
@@ -198,8 +199,7 @@ async function routeVoice(text) {
         return out;
       }
     }
-    const s = await runSearch(text);
-    if (s.action === 'search') context = outcome.searchToContext(s);
+    context = await searchContext(text);
   }
   out.speech = await brainReply(text, context);
   return out;
