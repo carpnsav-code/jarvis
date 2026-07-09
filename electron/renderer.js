@@ -380,23 +380,23 @@ async function startRecording() {
     }
   };
   recorder.start();
+  isRecording = true;
   talkBtn.classList.add('recording');
-  talkBtn.textContent = '● Listening…';
+  talkBtn.textContent = '■ Stop & send';
   setState('listening');
 }
 function stopRecording() {
+  isRecording = false;
   talkBtn.classList.remove('recording');
-  talkBtn.textContent = '🎤 Hold to talk';
+  talkBtn.textContent = '🎤 Start talking';
   if (recorder && recorder.state !== 'inactive') recorder.stop();
 }
-// Press-and-hold (mouse + touch).
-talkBtn.addEventListener('pointerdown', (e) => {
-  e.preventDefault();
-  startRecording();
+// Tap to start listening (interrupts him if he's talking), tap again to send.
+let isRecording = false;
+talkBtn.addEventListener('click', () => {
+  if (isRecording) stopRecording();
+  else startRecording();
 });
-talkBtn.addEventListener('pointerup', stopRecording);
-talkBtn.addEventListener('pointerleave', stopRecording);
-talkBtn.addEventListener('pointercancel', stopRecording);
 
 // --- Startup greeting -----------------------------------------------------------
 window.addEventListener('load', async () => {

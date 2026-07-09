@@ -49,11 +49,31 @@ const {
   authorize: spotifyAuthorize,
 } = require('./spotify');
 
-const PORT = Number(process.env.JARVIS_PORT || 8800);
-// Bind to all interfaces so a phone on the same Wi-Fi can reach it. ORIGIN stays
-// the loopback address for local URL parsing / the default embed origin.
+const crypto = require('crypto');
+
+// Cloud hosts (Render, Railway, …) inject PORT; locally we default to 8800.
+const IN_CLOUD = Boolean(process.env.PORT);
+const PORT = Number(process.env.PORT || process.env.JARVIS_PORT || 8800);
 const HOST = process.env.JARVIS_HOST || '0.0.0.0';
 const ORIGIN = `http://127.0.0.1:${PORT}`;
+
+// Optional password gate — protects a public deployment (which controls your
+// CRM). Unset = open (fine for local). Set JARVIS_PASSWORD in the host's env.
+const PASSWORD = process.env.JARVIS_PASSWORD || '';
+const AUTH_TOKEN = PASSWORD ? crypto.createHash('sha256').update(`jarvis:${PASSWORD}`).digest('hex').slice(0, 32) : '';
+function isAuthed(req) {
+  if (!PASSWORD) return true;
+  const cookie = req.headers.cookie || '';
+  return cookie.split(';').some((c) => c.trim() === `jarvis_auth=${AUTH_TOKEN}`);
+}
+function loginPage() {
+  return `<!doctype html><meta name=viewport content="width=device-width,initial-scale=1">
+<style>body{margin:0;height:100vh;display:grid;place-items:center;background:#0a0304;color:#ffd6d6;font-family:system-ui}
+form{display:flex;flex-direction:column;gap:12px;width:260px}input,button{padding:12px;font-size:16px;border-radius:6px;border:1px solid #ff2b2b55;background:#1e0608;color:#ffd6d6}
+button{background:#ff2b2b;color:#0a0304;font-weight:600;cursor:pointer}h1{letter-spacing:6px;color:#ff8a8a}</style>
+<form onsubmit="event.preventDefault();fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:this.p.value})}).then(r=>r.json()).then(d=>d.ok?location.reload():alert('Wrong password'))">
+<h1>J.A.R.V.I.S.</h1><input name=p type=password placeholder="Password" autofocus><button>Enter</button></form>`;
+}
 const GREETING = process.env.JARVIS_GREETING || 'Systems online. Say the word whenever you need me, sir.';
 
 // This machine's LAN IP, for opening Jarvis on a phone.
@@ -297,6 +317,33 @@ function sendIndex(res) {
 const handler = async (req, res) => {
   const url = new URL(req.url, ORIGIN);
   try {
+    // Password gate (when JARVIS_PASSWORD is set).
+    if (req.method === 'POST' && url.pathname === '/api/login') {
+      const body = await readBody(req);
+      const pw = body ? (JSON.parse(body).password || '') : '';
+      if (PASSWORD && pw === PASSWORD) {
+        const secure = IN_CLOUD ? '; Secure' : '';
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Set-Cookie': `jarvis_auth=${AUTH_TOKEN}; HttpOnly; Path=/; Max-Age=31536000; SameSite=Lax${secure}`,
+        });
+        return res.end('{"ok":true}');
+      }
+      return sendJson(res, { ok: false });
+    }
+    if (!isAuthed(req)) {
+      // Static assets are harmless; the login page gates the rest.
+      if (url.pathname === '/' || url.pathname === '/renderer.js' || url.pathname === '/webBridge.js') {
+        if (url.pathname === '/') {
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          return res.end(loginPage());
+        }
+        return sendStatic(res, url.pathname.slice(1), 'text/javascript');
+      }
+      res.writeHead(401);
+      return res.end('Locked');
+    }
+
     if (req.method === 'GET') {
       if (url.pathname === '/') return sendIndex(res);
       if (url.pathname === '/renderer.js') return sendStatic(res, 'renderer.js', 'text/javascript');
@@ -366,7 +413,9 @@ const handler = async (req, res) => {
 
 const ip = lanIp();
 const HTTPS_PORT = PORT + 1;
-const cert = ensureCert(ip); // self-signed, for phone mic access over https
+// Local self-signed https is only for LAN phone access; cloud hosts terminate
+// TLS themselves, so skip it there.
+const cert = IN_CLOUD ? null : ensureCert(ip);
 
 http.createServer(handler).listen(PORT, HOST);
 if (cert) {

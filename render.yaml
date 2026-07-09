@@ -1,0 +1,28 @@
+# Render Blueprint — deploys the Jarvis web server as a public website.
+# In Render: New → Blueprint → connect this repo → it reads this file.
+# Then set the secret env vars (marked sync:false) in the dashboard.
+services:
+  - type: web
+    name: jarvis
+    runtime: node
+    plan: free
+    rootDir: electron
+    # No dependencies to install — the app is pure Node built-ins.
+    buildCommand: echo "no build needed"
+    startCommand: node webServer.js
+    envVars:
+      # Password to open the site (pick anything). Required so the public URL
+      # isn't open to strangers.
+      - key: JARVIS_PASSWORD
+        sync: false
+      # The brain + speech-to-text.
+      - key: GROQ_API_KEY
+        sync: false
+      # The JARVIS voice.
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      # Live GoHighLevel control.
+      - key: GHL_API_TOKEN
+        sync: false
+      - key: GHL_LOCATION_ID
+        sync: false
