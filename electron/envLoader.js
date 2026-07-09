@@ -15,7 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 
-function parseAndApply(file) {
+function parseAndApply(file, realEnv) {
   let text;
   try {
     text = fs.readFileSync(file, 'utf8');
@@ -28,21 +28,26 @@ function parseAndApply(file) {
     const eq = line.indexOf('=');
     if (eq === -1) continue;
     const key = line.slice(0, eq).trim();
-    if (!key || key in process.env) continue; // real env wins
+    if (!key || realEnv.has(key)) continue; // a real (pre-existing) env var always wins
     let value = line.slice(eq + 1).trim();
     // Strip matching surrounding quotes.
     if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
       value = value.slice(1, -1);
     }
+    // Skip empty values so a blank template line (e.g. `ELEVENLABS_API_KEY=`)
+    // can't shadow a real one filled in later in the file. Later non-empty
+    // lines override earlier ones.
+    if (value === '') continue;
     process.env[key] = value;
   }
 }
 
 function loadEnv() {
-  // electron/.env first, then repo-root .env — but neither overrides real env
-  // or an earlier file (first writer wins, and real env always wins).
-  parseAndApply(path.join(__dirname, '.env'));
-  parseAndApply(path.join(__dirname, '..', '.env'));
+  // Snapshot which vars were REAL env before we touched anything — those always
+  // win over the file. Then apply electron/.env, then repo-root .env.
+  const realEnv = new Set(Object.keys(process.env));
+  parseAndApply(path.join(__dirname, '.env'), realEnv);
+  parseAndApply(path.join(__dirname, '..', '.env'), realEnv);
 }
 
 module.exports = { loadEnv };
