@@ -239,3 +239,37 @@ test('agent rolls over to Gemini when Groq is fully rate-limited', async () => {
   assert.match(speech, /Three deals/);
   assert.ok(urls.some((u) => u.includes('generativelanguage')));
 });
+
+test('mid-loop rollover to Gemini flattens tool history (no thought_signature 400)', async () => {
+  _resetModelBench();
+  const client = new GHLClient({
+    token: 't', locationId: 'l',
+    fetchImpl: stubFetch([['/opportunities/search', () => ok({ opportunities: [{ name: 'Acme' }] })]]),
+  });
+  // Step 1 on Groq returns a tool call; Groq is then rate-limited, so step 2
+  // must continue on Gemini. Gemini would 400 if it received the raw Groq tool
+  // call (which lacks a thought_signature) — assert it gets flattened text.
+  let geminiBody = null;
+  let turn = 0;
+  const groqImpl = async (url, opts) => {
+    if (url.includes('generativelanguage')) {
+      geminiBody = JSON.parse(opts.body);
+      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { role: 'assistant', content: 'One open deal, Acme, sir.' } }] }) };
+    }
+    turn += 1;
+    if (turn === 1) {
+      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { role: 'assistant', tool_calls: [{ id: 'x', function: { name: 'ghl_list_opportunities', arguments: '{"status":"open"}' } }] } }] }) };
+    }
+    return { ok: false, status: 429, json: async () => ({}), text: async () => 'per day TPD' };
+  };
+  const speech = await runGhlAgent('what are my open deals', { keys: ['k'], client, groqImpl, geminiKey: 'gem' });
+  assert.match(speech, /Acme/);
+  // The conversation Gemini received must contain NO structured tool_calls and
+  // no tool-role messages — everything flattened to plain text.
+  assert.ok(geminiBody, 'Gemini should have been called');
+  for (const m of geminiBody.messages) {
+    assert.ok(!m.tool_calls, 'no structured tool_calls sent to Gemini');
+    assert.notEqual(m.role, 'tool', 'no tool-role messages sent to Gemini');
+  }
+  assert.ok(geminiBody.messages.some((m) => /\[called ghl_list_opportunities/.test(m.content || '')), 'tool call flattened to text');
+});

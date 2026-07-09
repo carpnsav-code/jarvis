@@ -181,6 +181,45 @@ function benchMs(errText) {
   return /per day|TPD/i.test(errText) ? 10 * 60 * 1000 : 15 * 1000;
 }
 
+// Gemini's OpenAI-compatible endpoint 400s if the message history contains a
+// tool call that lacks Google's `thought_signature` — which Groq-authored tool
+// calls never have. So when a CRM query starts on Groq and rolls to Gemini to
+// continue, Gemini used to reject the whole conversation and the agent fell
+// through to a bogus "rate-limited" message. Fix: for Gemini calls only,
+// flatten every prior tool step into plain text (no structured tool_calls in
+// the history at all, so no signature is required). The tools list still rides
+// along, so Gemini can make fresh calls of its own.
+function sanitizeForGemini(messages) {
+  return messages.map((m) => {
+    if (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length) {
+      const calls = m.tool_calls
+        .map((c) => `${c.function.name}(${c.function.arguments || '{}'})`)
+        .join(', ');
+      return { role: 'assistant', content: `${m.content ? m.content + ' ' : ''}[called ${calls}]` };
+    }
+    if (m.role === 'tool') {
+      return { role: 'user', content: `[tool result: ${m.content}]` };
+    }
+    return m;
+  });
+}
+
+// Keep stored assistant messages in clean OpenAI shape (drop provider-specific
+// extras like Gemini's thought_signature) so whichever provider handles the
+// next step doesn't choke on foreign fields.
+function cleanAssistantMsg(msg) {
+  const out = { role: msg.role };
+  if (msg.content != null) out.content = msg.content;
+  if (Array.isArray(msg.tool_calls)) {
+    out.tool_calls = msg.tool_calls.map((c) => ({
+      id: c.id,
+      type: c.type || 'function',
+      function: { name: c.function.name, arguments: c.function.arguments },
+    }));
+  }
+  return out;
+}
+
 async function callGroq(messages, { keys, model, groqImpl, tools = TOOLS, geminiKey = process.env.GEMINI_API_KEY }) {
   let lastErr = null;
   // Ladder: Groq primary → Groq fallback → Gemini (independent quota) → all
@@ -198,12 +237,13 @@ async function callGroq(messages, { keys, model, groqImpl, tools = TOOLS, gemini
     const usable = attempt.keys.filter((k) => (modelBench.get(`${attempt.model}|${k}`) || 0) < Date.now());
     if (!usable.length) continue;
     if (attempt.wait) await sleep(attempt.wait);
+    const payloadMessages = attempt.url === GEMINI_URL ? sanitizeForGemini(messages) : messages;
     for (const key of usable) {
       try {
         const res = await groqImpl(attempt.url, {
           method: 'POST',
           headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: attempt.model, messages, tools, tool_choice: 'auto', temperature: 0.2, max_tokens: 350 }),
+          body: JSON.stringify({ model: attempt.model, messages: payloadMessages, tools, tool_choice: 'auto', temperature: 0.2, max_tokens: 350 }),
         });
         if (res.status === 429 || res.status === 401 || res.status >= 500) {
           lastErr = new Error(`HTTP ${res.status}`);
@@ -283,7 +323,7 @@ async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT
   const tools = toolsFor(text);
   try {
     for (let step = 0; step < MAX_STEPS; step++) {
-      const msg = await callGroq(messages, { keys, model, groqImpl, tools, geminiKey });
+      const msg = cleanAssistantMsg(await callGroq(messages, { keys, model, groqImpl, tools, geminiKey }));
       messages.push(msg);
 
       const calls = msg.tool_calls || [];
