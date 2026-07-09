@@ -244,6 +244,14 @@ const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecogni
 let recognition = null;
 let micMuted = false;
 
+// While he's talking, the ONLY thing that stops him is his name — so loud
+// background noise or his own voice can't cut him off. When he's idle you just
+// talk to him normally (no wake word needed).
+const WAKE = /\b(jarvis|jervis|jarvus|jarvods)\b/i;
+function stripWake(text) {
+  return text.replace(WAKE, '').replace(/^[\s,.:;!?-]+/, '').trim();
+}
+
 function setListening(on) {
   const active = on && !micMuted;
   bar.classList.toggle('listening', active);
@@ -274,18 +282,25 @@ if (SpeechRecognition) {
     const result = event.results[event.results.length - 1];
     const transcript = result[0].transcript.trim();
     if (!transcript) return;
+    if (isEcho(transcript)) return; // ignore his own voice bleeding into the mic
 
-    // Ignore his own voice bleeding into the mic; anything else is you.
-    if (isEcho(transcript)) return;
+    const hasWake = WAKE.test(transcript);
 
-    // You spoke → he stops talking immediately (natural barge-in, no wake word).
     if (speaking) {
+      // While talking he only stops for his name — everything else, he talks
+      // right through (loud noise no longer cuts him off).
+      if (!hasWake) return;
       stopSpeaking();
       setState('listening');
     }
 
-    // Process the full utterance as a normal conversational turn.
-    if (result.isFinal) handleUtterance(transcript);
+    if (result.isFinal) {
+      // Strip the wake word if present; when idle you don't need it.
+      const command = hasWake ? stripWake(transcript) : transcript.trim();
+      if (command) handleUtterance(command);
+      // Just "Jarvis" alone → he's stopped and now listening; your next line is
+      // taken normally.
+    }
   };
 
   try {
