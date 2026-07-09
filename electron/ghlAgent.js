@@ -30,6 +30,7 @@ const TOOL_GROUPS = {
   deals: ['ghl_list_pipelines', 'ghl_list_opportunities', 'ghl_update_opportunity'],
   calendar: ['ghl_list_calendars', 'ghl_list_appointments', 'ghl_get_free_slots', 'ghl_create_appointment'],
   convo: ['ghl_list_conversations', 'ghl_send_message'],
+  quotes: ['ghl_send_quote', 'ghl_list_estimate_templates'],
 };
 function toolsFor(text) {
   const t = String(text || '').toLowerCase();
@@ -45,6 +46,10 @@ function toolsFor(text) {
   }
   if (/\btext\b|\bsms\b|message|email|conversation|\bsay\b|\btell\b|reach out|follow up/.test(t)) {
     TOOL_GROUPS.convo.forEach((n) => names.add(n));
+    matched = true;
+  }
+  if (/quote|estimate|proposal|template/.test(t)) {
+    TOOL_GROUPS.quotes.forEach((n) => names.add(n));
     matched = true;
   }
   if (/\bleads?\b|contact|customer|\btag\b/.test(t)) matched = true;
@@ -110,9 +115,51 @@ async function runTextCommand(client, { name, message }) {
   }
 }
 
+// Deterministic EMAIL path, mirroring the text one ("email harold saying …").
+const EMAIL_PATTERNS = [
+  /\bsend\s+(?:an?\s+)?e-?mail\s+to\s+([a-z][a-z .'-]{0,40}?)\s+(?:saying|that says|telling (?:him|her|them)\s*(?:that)?|and (?:tell|say)\s*(?:him|her|them)?\s*(?:that)?|that)\s+(.+)/i,
+  /\be-?mail\s+([a-z][a-z .'-]{0,40}?)\s+(?:saying|that says|telling (?:him|her|them)\s*(?:that)?|and (?:tell|say)\s*(?:him|her|them)?\s*(?:that)?|that)\s+(.+)/i,
+  /\bsend\s+([a-z][a-z .'-]{0,40}?)\s+an?\s+e-?mail\s+(?:saying|that says)?\s*(.+)/i,
+];
+function parseEmailCommand(text) {
+  const t = String(text || '').trim();
+  for (const re of EMAIL_PATTERNS) {
+    const m = t.match(re);
+    if (m && m[1].trim() && m[2].trim()) return { name: m[1].trim(), message: m[2].trim() };
+  }
+  return null;
+}
+async function runEmailCommand(client, { name, message }) {
+  if (!client || !client.isConfigured()) return 'Your GoHighLevel account is not connected yet, sir.';
+  let contacts = [];
+  try {
+    const d = await client.listContacts({ query: name, limit: 10 });
+    contacts = d.contacts || [];
+  } catch (err) {
+    return `I couldn't search contacts, sir — ${String(err.message).slice(0, 90)}`;
+  }
+  const norm = (s) => String(s || '').toLowerCase();
+  const tokens = norm(name).split(/\s+/).filter(Boolean);
+  const displayName = (c) => c.contactName || `${c.firstName || ''} ${c.lastName || ''}`.trim() || c.email || 'contact';
+  const match = contacts.find((c) => tokens.every((tk) => norm(displayName(c)).includes(tk)));
+  if (!match) return `I couldn't find a contact matching "${name}", sir — no email sent.`;
+  if (!match.email) return `${displayName(match)} has no email address on file, sir — no email sent.`;
+  try {
+    await client.sendMessage({
+      contactId: match.id,
+      type: 'Email',
+      message,
+      subject: 'Mint Concrete Polishing & Epoxy',
+    });
+    return `Email sent to ${displayName(match)}, sir: "${message}"`;
+  } catch (err) {
+    return `GoHighLevel rejected the email to ${displayName(match)}, sir — ${String(err.message).slice(0, 100)}`;
+  }
+}
+
 // Does this utterance look like a CRM/GHL request?
 const GHL_INTENT =
-  /\b(ghl|gohighlevel|high level|crm|contacts?|leads?|deals?|opportunit|pipeline|appointments?|my calendar)\b|\btext\s+\w+|\bsend (a |an )?(text|sms|message|email)\b/i;
+  /\b(ghl|gohighlevel|high level|crm|contacts?|leads?|deals?|opportunit|pipeline|appointments?|my calendar|quotes?|estimates?|invoices?|templates?)\b|\btext\s+\w+|\be-?mail\s+\w+|\bsend (a |an )?(text|sms|message|email|quote|estimate)\b/i;
 
 function isGhlQuery(text) {
   return GHL_INTENT.test(String(text || ''));
@@ -206,7 +253,10 @@ async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT
         'reschedule an appointment unless Dan (or the customer, relayed by Dan) has ' +
         'named a specific day AND time. The quote calendar (OxMnzcf1JnHz2LG138Fg) is ' +
         'weekdays only, top-of-the-hour slots, mornings preferred — check free slots ' +
-        'before promising a time. Never quote a price or recommend a coating system ' +
+        'before promising a time. For "send a quote/estimate" call ghl_send_quote ONCE — ' +
+        'it does the whole SOP (template + customer + sqft × price per sqft, sent by ' +
+        'text and email) — using exactly the numbers Dan gave, never invented ones. ' +
+        'Never quote a price or recommend a coating system ' +
         '(only exception: a 2-car garage under 500 sq ft flake job is $2,000–3,000 and ' +
         'routes to Joseph Ruiz). Messages sent TO customers are texts in Dan\'s style: ' +
         'blunt, confident, one short line, casual, no sign-off. ' +
@@ -249,4 +299,4 @@ async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT
   }
 }
 
-module.exports = { isGhlQuery, runGhlAgent, AGENT_MODEL, _resetModelBench, toolsFor, parseTextCommand, runTextCommand };
+module.exports = { isGhlQuery, runGhlAgent, AGENT_MODEL, _resetModelBench, toolsFor, parseTextCommand, runTextCommand, parseEmailCommand, runEmailCommand };

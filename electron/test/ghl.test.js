@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { GHLClient, TOOLS } = require('../ghlClient');
-const { isGhlQuery, runGhlAgent, _resetModelBench, parseTextCommand, runTextCommand } = require('../ghlAgent');
+const { isGhlQuery, runGhlAgent, _resetModelBench, parseTextCommand, runTextCommand, parseEmailCommand, runEmailCommand } = require('../ghlAgent');
 
 test('parseTextCommand handles the common spoken phrasings', () => {
   assert.deepEqual(parseTextCommand('text harold saying we are on for friday'), { name: 'harold', message: 'we are on for friday' });
@@ -26,6 +26,71 @@ test('runTextCommand finds the contact by name and sends the SMS', async () => {
   const speech = await runTextCommand(client, { name: 'harold', message: 'on my way' });
   assert.match(speech, /Text sent to harold williams/);
   assert.deepEqual(rec[0], { contactId: 'c9', type: 'SMS', message: 'on my way' });
+});
+
+test('parseEmailCommand handles common phrasings', () => {
+  assert.deepEqual(parseEmailCommand('email harold saying the quote is attached'), { name: 'harold', message: 'the quote is attached' });
+  assert.deepEqual(parseEmailCommand('send an email to harold williams saying thanks for your time'), { name: 'harold williams', message: 'thanks for your time' });
+  assert.equal(parseEmailCommand('text harold saying hi'), null);
+});
+
+test('runEmailCommand sends type Email with a subject; refuses without an email on file', async () => {
+  const rec = [];
+  const withEmail = new GHLClient({
+    token: 't', locationId: 'l',
+    fetchImpl: stubFetch([
+      ['/contacts/', () => ok({ contacts: [{ id: 'c1', contactName: 'harold williams', email: 'h@x.com' }] })],
+      ['/conversations/messages', (u, o) => { rec.push(JSON.parse(o.body)); return ok({}); }],
+    ]),
+  });
+  const speech = await runEmailCommand(withEmail, { name: 'harold', message: 'quote attached' });
+  assert.match(speech, /Email sent to harold williams/);
+  assert.equal(rec[0].type, 'Email');
+  assert.ok(rec[0].subject);
+
+  const noEmail = new GHLClient({
+    token: 't', locationId: 'l',
+    fetchImpl: stubFetch([['/contacts/', () => ok({ contacts: [{ id: 'c1', contactName: 'harold williams' }] })]]),
+  });
+  assert.match(await runEmailCommand(noEmail, { name: 'harold', message: 'x' }), /no email address on file/i);
+});
+
+test('sendQuote runs the whole SOP: template + customer + sqft×price, sent sms_and_email', async () => {
+  const created = [];
+  const sent = [];
+  const client = new GHLClient({
+    token: 't', locationId: 'LOC',
+    fetchImpl: stubFetch([
+      ['/contacts/', () => ok({ contacts: [{ id: 'c7', contactName: 'harold williams', email: 'h@x.com', phone: '+1555' }] })],
+      ['/invoices/estimate/template', () => ok({ data: [{ _id: 'tpl1', name: 'Polyaspartic Flake Flooring System', title: 'ESTIMATE', termsNotes: '<p>terms</p>', businessDetails: { name: 'Mint' }, discount: { value: 0, type: 'percentage' }, items: [{ name: 'Polyaspartic Flake Flooring System', amount: 5, qty: 1, productId: 'p', priceId: 'pr', type: 'one_time', currency: 'USD', taxInclusive: false, _id: 'x' }] }] })],
+      ['/invoices/estimate/est9/send', (u, o) => { sent.push(JSON.parse(o.body)); return ok({ estimateStatus: 'sent' }); }],
+      ['/invoices/estimate', (u, o) => { created.push(JSON.parse(o.body)); return ok({ _id: 'est9' }); }],
+    ]),
+  });
+  const r = await client.sendQuote({ contactName: 'harold', templateName: 'flake', squareFeet: 600, pricePerSquareFoot: 6 });
+  assert.equal(r.total, 3600);
+  const body = created[0];
+  assert.equal(body.items[0].qty, 600); // sqft = quantity
+  assert.equal(body.items[0].amount, 6); // $/sqft = unit price
+  assert.deepEqual(body.frequencySettings, { enabled: false }); // required by the API
+  assert.ok(body.name.length <= 40); // 422s past 40 chars
+  assert.equal(body.termsNotes, '<p>terms</p>'); // template terms carried
+  assert.equal(sent[0].action, 'sms_and_email'); // text AND email
+  assert.ok(sent[0].userId); // required by the API
+});
+
+test('sendQuote refuses on an unknown template and names the real ones', async () => {
+  const client = new GHLClient({
+    token: 't', locationId: 'l',
+    fetchImpl: stubFetch([
+      ['/contacts/', () => ok({ contacts: [{ id: 'c1', contactName: 'harold' }] })],
+      ['/invoices/estimate/template', () => ok({ data: [{ name: 'Polyaspartic Flake Flooring System', items: [{}] }] })],
+    ]),
+  });
+  await assert.rejects(
+    () => client.sendQuote({ contactName: 'harold', templateName: 'zzz-nonexistent', squareFeet: 1, pricePerSquareFoot: 1 }),
+    /No estimate template matching/,
+  );
 });
 
 test('runTextCommand refuses to send when no contact matches the name', async () => {

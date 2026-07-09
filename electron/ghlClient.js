@@ -117,6 +117,96 @@ class GHLClient {
     });
   }
 
+  // --- Estimates (quotes) — Dan's SOP in one atomic call ---------------------
+  listEstimateTemplates() {
+    return this.request('GET', '/invoices/estimate/template', {
+      query: { altId: this.locationId, altType: 'location', limit: 50, offset: 0 },
+    });
+  }
+
+  /**
+   * The whole quote SOP: pick the prebuilt template, attach the customer, set
+   * square footage (= quantity) and price per sq ft (= unit price), send via
+   * text AND email. Encodes the API's learned quirks: frequencySettings is
+   * required, the send call needs a userId, and the name must be ≤ 40 chars.
+   */
+  async sendQuote({ contactName, contactId, templateName, squareFeet, pricePerSquareFoot, title }) {
+    const norm = (s) => String(s || '').toLowerCase();
+
+    // 1. the customer
+    let contact = null;
+    if (contactId) {
+      const d = await this.request('GET', `/contacts/${contactId}`);
+      contact = d.contact || d;
+    } else {
+      const d = await this.listContacts({ query: contactName, limit: 10 });
+      const tokens = norm(contactName).split(/\s+/).filter(Boolean);
+      const nameOf = (c) => norm(c.contactName || `${c.firstName || ''} ${c.lastName || ''}`);
+      contact = (d.contacts || []).find((c) => tokens.every((tk) => nameOf(c).includes(tk)));
+    }
+    if (!contact) throw new Error(`No contact found matching "${contactName}"`);
+
+    // 2. the prebuilt template
+    const tpls = ((await this.listEstimateTemplates()).data || []);
+    const want = norm(templateName).replace(/\bsystem\b/g, '').trim();
+    const wantTokens = want.split(/\s+/).filter(Boolean);
+    let template =
+      tpls.find((t) => wantTokens.every((tk) => norm(t.name).includes(tk))) ||
+      tpls.find((t) => wantTokens.some((tk) => tk.length > 3 && norm(t.name).includes(tk)));
+    if (!template) {
+      throw new Error(`No estimate template matching "${templateName}". Available: ${tpls.map((t) => t.name).join(', ')}`);
+    }
+
+    // 3. fill it out: sqft = quantity, $/sqft = per-unit price
+    const item = { ...template.items[0], qty: Number(squareFeet), amount: Number(pricePerSquareFoot) };
+    delete item._id;
+    const created = await this.request('POST', '/invoices/estimate', {
+      body: {
+        altId: this.locationId,
+        altType: 'location',
+        liveMode: true,
+        name: String(title || template.name).slice(0, 40), // API 422s past 40 chars
+        title: template.title || 'ESTIMATE',
+        currency: 'USD',
+        businessDetails: template.businessDetails,
+        contactDetails: {
+          id: contact.id,
+          name: contact.contactName || `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
+          email: contact.email,
+          phoneNo: contact.phone,
+        },
+        items: [item],
+        discount: template.discount || { value: 0, type: 'percentage' },
+        termsNotes: template.termsNotes,
+        frequencySettings: { enabled: false },
+        issueDate: new Date().toISOString().slice(0, 10),
+        expiryDate: new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10),
+      },
+    });
+    const estimateId = created._id || (created.estimate && created.estimate._id);
+    if (!estimateId) throw new Error('Estimate creation returned no id');
+
+    // 4. send via text AND email (userId is required by the API)
+    await this.request('POST', `/invoices/estimate/${estimateId}/send`, {
+      body: {
+        altId: this.locationId,
+        altType: 'location',
+        userId: DEFAULT_APPOINTMENT_USER(),
+        action: 'sms_and_email',
+        liveMode: true,
+      },
+    });
+
+    return {
+      estimateId,
+      contact: contact.contactName || contactName,
+      template: template.name,
+      squareFeet: Number(squareFeet),
+      pricePerSquareFoot: Number(pricePerSquareFoot),
+      total: Number(squareFeet) * Number(pricePerSquareFoot),
+    };
+  }
+
   // --- Conversations ---
   listConversations({ contactId, limit = 20 } = {}) {
     return this.request('GET', '/conversations/search', {
@@ -158,6 +248,10 @@ class GHLClient {
         return this.listConversations(args);
       case 'ghl_send_message':
         return this.sendMessage(args);
+      case 'ghl_list_estimate_templates':
+        return this.listEstimateTemplates();
+      case 'ghl_send_quote':
+        return this.sendQuote(args);
       default:
         throw new Error(`Unknown GHL tool: ${name}`);
     }
@@ -305,6 +399,34 @@ const TOOLS = [
         },
         required: ['calendarId', 'contactId', 'startTime', 'endTime'],
       },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ghl_send_quote',
+      description:
+        'Create AND send an estimate/quote from a prebuilt template via text and email, in one step (the SOP). ' +
+        'Use whenever Dan says to send a quote or estimate. The price must come from Dan — never invent it.',
+      parameters: {
+        type: 'object',
+        properties: {
+          contactName: { type: 'string', description: 'Customer name as Dan said it' },
+          templateName: { type: 'string', description: 'Which template: flake, marble metallic, single color epoxy, grind and seal, stained, 200/400/800 grit polished' },
+          squareFeet: { type: 'number' },
+          pricePerSquareFoot: { type: 'number' },
+          title: { type: 'string', description: 'Optional short estimate name (max 40 chars)' },
+        },
+        required: ['contactName', 'templateName', 'squareFeet', 'pricePerSquareFoot'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ghl_list_estimate_templates',
+      description: 'List the prebuilt estimate templates and their default per-sq-ft pricing.',
+      parameters: { type: 'object', properties: {} },
     },
   },
   {

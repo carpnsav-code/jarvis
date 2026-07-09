@@ -35,7 +35,7 @@ const outcome = require('./outcome');
 const { parseCreateCommand, createFile } = require('./fileCreation');
 const { parseProductivityCommand, resolveProductivity } = require('./productivity');
 const { GHLClient } = require('./ghlClient');
-const { isGhlQuery, runGhlAgent, parseTextCommand, runTextCommand } = require('./ghlAgent');
+const { isGhlQuery, runGhlAgent, parseTextCommand, runTextCommand, parseEmailCommand, runEmailCommand } = require('./ghlAgent');
 const {
   parseSpotifyCommand,
   runSpotifyCommand,
@@ -181,10 +181,14 @@ async function routeVoice(text) {
     return runCreateFile(create);
   }
 
-  // 3b. Texting a contact — deterministic fast path.
+  // 3b. Texting/emailing a contact — deterministic fast paths.
   const textCmd = parseTextCommand(text);
   if (textCmd && ghl.isConfigured()) {
     return { speech: await runTextCommand(ghl, textCmd), handled: true };
+  }
+  const emailCmd = parseEmailCommand(text);
+  if (emailCmd && ghl.isConfigured()) {
+    return { speech: await runEmailCommand(ghl, emailCmd), handled: true };
   }
 
   // 3c. Live GoHighLevel operations.
