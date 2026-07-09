@@ -207,6 +207,100 @@ class GHLClient {
     };
   }
 
+  // --- Invoices — same SOP as estimates, but it's an invoice and it's due today.
+  listInvoiceTemplates() {
+    return this.request('GET', '/invoices/template', {
+      query: { altId: this.locationId, altType: 'location', limit: 50, offset: 0 },
+    });
+  }
+
+  /**
+   * Create and send an invoice from a prebuilt template: quantity = qty,
+   * price per unit = amount, sent by text AND email, due today. Mirrors
+   * sendQuote's learned quirks (frequencySettings required, send needs a userId,
+   * name ≤ 40 chars).
+   */
+  async sendInvoice({ contactName, contactId, templateName, quantity, amount, title }) {
+    const norm = (s) => String(s || '').toLowerCase();
+
+    // 1. the customer
+    let contact = null;
+    if (contactId) {
+      const d = await this.request('GET', `/contacts/${contactId}`);
+      contact = d.contact || d;
+    } else {
+      const d = await this.listContacts({ query: contactName, limit: 10 });
+      const tokens = norm(contactName).split(/\s+/).filter(Boolean);
+      const nameOf = (c) => norm(c.contactName || `${c.firstName || ''} ${c.lastName || ''}`);
+      contact = (d.contacts || []).find((c) => tokens.every((tk) => nameOf(c).includes(tk)));
+    }
+    if (!contact) throw new Error(`No contact found matching "${contactName}"`);
+
+    // 2. the prebuilt template (fall back to estimate templates if no invoice
+    //    templates exist — the account's saved designs live there)
+    let tpls = ((await this.listInvoiceTemplates()).data || []);
+    if (!tpls.length) tpls = ((await this.listEstimateTemplates()).data || []);
+    const want = norm(templateName).replace(/\bsystem\b/g, '').trim();
+    const wantTokens = want.split(/\s+/).filter(Boolean);
+    const template =
+      tpls.find((t) => wantTokens.every((tk) => norm(t.name).includes(tk))) ||
+      tpls.find((t) => wantTokens.some((tk) => tk.length > 3 && norm(t.name).includes(tk)));
+    if (!template) {
+      throw new Error(`No template matching "${templateName}". Available: ${tpls.map((t) => t.name).join(', ')}`);
+    }
+
+    // 3. fill it out: quantity = qty, $/unit = per-unit price
+    const item = { ...template.items[0], qty: Number(quantity), amount: Number(amount) };
+    delete item._id;
+    const today = new Date().toISOString().slice(0, 10);
+    const created = await this.request('POST', '/invoices/', {
+      body: {
+        altId: this.locationId,
+        altType: 'location',
+        liveMode: true,
+        name: String(title || template.name).slice(0, 40),
+        title: template.title || 'INVOICE',
+        currency: 'USD',
+        businessDetails: template.businessDetails,
+        contactDetails: {
+          id: contact.id,
+          name: contact.contactName || `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
+          email: contact.email,
+          phoneNo: contact.phone,
+        },
+        items: [item],
+        discount: template.discount || { value: 0, type: 'percentage' },
+        termsNotes: template.termsNotes,
+        frequencySettings: { enabled: false },
+        issueDate: today,
+        dueDate: today, // invoices are due the same day they're sent
+      },
+    });
+    const invoiceId = created._id || (created.invoice && created.invoice._id);
+    if (!invoiceId) throw new Error('Invoice creation returned no id');
+
+    // 4. send via text AND email (userId is required by the API)
+    await this.request('POST', `/invoices/${invoiceId}/send`, {
+      body: {
+        altId: this.locationId,
+        altType: 'location',
+        userId: DEFAULT_APPOINTMENT_USER(),
+        action: 'sms_and_email',
+        liveMode: true,
+      },
+    });
+
+    return {
+      invoiceId,
+      contact: contact.contactName || contactName,
+      template: template.name,
+      quantity: Number(quantity),
+      amount: Number(amount),
+      total: Number(quantity) * Number(amount),
+      dueDate: today,
+    };
+  }
+
   // --- Conversations ---
   listConversations({ contactId, limit = 20 } = {}) {
     return this.request('GET', '/conversations/search', {

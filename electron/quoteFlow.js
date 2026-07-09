@@ -75,20 +75,23 @@ function parseTemplate(text) {
 function parseContact(text) {
   const t = String(text || '').replace(/[.?!,]+$/, '');
   let m =
-    t.match(/\b(?:estimate|quote|proposal)\s+(?:to|for)\s+([a-z][a-z .'-]*[a-z])/i) ||
-    t.match(/\bsend\s+([a-z][a-z .'-]*[a-z])\s+an?\s+(?:estimate|quote|proposal)/i) ||
+    t.match(/\b(?:estimate|quote|proposal|invoice)\s+(?:to|for)\s+([a-z][a-z .'-]*[a-z])/i) ||
+    t.match(/\bsend\s+([a-z][a-z .'-]*[a-z])\s+an?\s+(?:estimate|quote|proposal|invoice)/i) ||
     t.match(/\b(?:to|for)\s+([a-z][a-z .'-]*[a-z])\s*$/i);
   if (!m) return undefined;
   // Trim anything that belongs to the template/number half of the sentence.
   let name = m[1]
-    .split(/\b(?:for|at|with|of|and|square|sq|dollars?|per|a|flake|metallic|epoxy|stained|polished|grind|grit|marble|single|solid)\b/i)[0]
+    .split(/\b(?:for|at|with|of|and|square|sq|dollars?|per|flake|metallic|epoxy|stained|polished|grind|grit|marble|single|solid)\b/i)[0]
     .replace(/[.,]+$/, '')
     .trim();
-  // Reject command/filler words that leak in from phrasings like "want to send".
-  if (/^(?:send|sent|make|made|create|creating|do|get|give|write|draft|prepare|build|generate|quote|estimate|proposal|it|that|this|one|the|an?|customer|client|him|her|them|someone)$/i.test(name)) {
-    return undefined;
-  }
-  return name && /[a-z]/i.test(name) ? name : undefined;
+  // Strip leading command/filler words that leak in from phrasings like
+  // "want to send an invoice" -> "send an invoice" -> "invoice".
+  name = name.replace(/^(?:send|sent|make|made|create|creating|do|get|give|write|draft|prepare|build|generate|bill|charge|please)\s+/i, '').trim();
+  name = name.replace(/^(?:an?|the|it|to|for|me)\s+/i, '').trim();
+  // Reject leftovers that are clearly not a person's name.
+  if (!name || /\b(?:invoice|estimate|quote|proposal)\b/i.test(name)) return undefined;
+  if (/^(?:send|sent|make|made|create|do|get|give|write|draft|prepare|build|generate|bill|charge|it|that|this|one|the|an?|customer|client|him|her|them|someone)$/i.test(name)) return undefined;
+  return /[a-z]/i.test(name) ? name : undefined;
 }
 
 // When Jarvis has just asked "who is the estimate for?", the reply is usually a
@@ -100,6 +103,7 @@ function nameFromReply(text) {
   const m = s.match(/\b(?:is|it'?s|for|to|named|called)\s+([a-z][a-z .'-]*[a-z])$/i);
   if (m) s = m[1];
   s = s.trim();
+  if (/\b(?:invoice|estimate|quote|proposal)\b/i.test(s)) return undefined; // a command, not a name
   if (!/^[a-z][a-z][a-z .'-]*$/i.test(s)) return undefined; // must look like a name, no digits
   if (s.split(/\s+/).length > 5) return undefined; // too long to be a name
   return s;
@@ -207,4 +211,11 @@ module.exports = {
   parseQuoteFields,
   advanceQuote,
   money,
+  // Shared primitives, reused by the invoice flow so parsing stays in one place.
+  parseTemplate,
+  parsePrice,
+  parseSquareFeet,
+  parseContact,
+  nameFromReply,
+  bareNumber,
 };

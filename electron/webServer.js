@@ -41,6 +41,7 @@ const { loadKnowledgeFiles } = require('./knowledge');
 const { GHLClient } = require('./ghlClient');
 const { isGhlQuery, runGhlAgent, parseTextCommand, runTextCommand, parseEmailCommand, runEmailCommand } = require('./ghlAgent');
 const { isQuoteStart, advanceQuote, money } = require('./quoteFlow');
+const { isInvoiceStart, advanceInvoice } = require('./invoiceFlow');
 const {
   parseSpotifyCommand,
   runSpotifyCommand,
@@ -97,8 +98,9 @@ try {
 }
 const memory = new MemoryStore();
 let lastSpotifyState = null;
-// An estimate being collected/confirmed across turns (null when none pending).
+// A document (estimate or invoice) being collected/confirmed across turns.
 let pendingQuote = null;
+let pendingInvoice = null;
 
 // Look up a name against real GHL contacts (same fuzzy match as texting).
 // Returns { id, displayName } on a match, null if no such contact.
@@ -127,6 +129,45 @@ async function sendConfirmedQuote(fields) {
   } catch (err) {
     return `I couldn't send that estimate, sir — ${String(err.message).slice(0, 120)}`;
   }
+}
+
+// Actually send a confirmed invoice and speak the result.
+async function sendConfirmedInvoice(fields) {
+  try {
+    const r = await ghl.sendInvoice(fields);
+    return (
+      `Sent, sir. A ${r.template} invoice for ${r.contact}, ${r.quantity} square feet at ` +
+      `$${money(r.amount)} per square foot — $${money(r.total)}, due today — by text and email.`
+    );
+  } catch (err) {
+    return `I couldn't send that invoice, sir — ${String(err.message).slice(0, 120)}`;
+  }
+}
+
+// Shared driver for the estimate/invoice collect-confirm-send flows. Verifies a
+// newly named contact exists before proceeding, then either sends or keeps the
+// conversation going. Returns { speech, state }.
+async function runDocTurn(advance, pending, text, sender) {
+  let r = advance(pending, text);
+  if (r.state && r.state.contactName && !r.state.contactResolved) {
+    const attempted = r.state.contactName;
+    const match = await resolveQuoteContact(attempted);
+    if (match) {
+      r.state.contactResolved = true;
+      r.state.contactId = match.id;
+      r.state.contactName = match.displayName;
+      if (r.state.confirming) r = advance(r.state, ''); // refresh read-back with the real name
+    } else {
+      r.state.contactName = undefined;
+      r.state.contactId = undefined;
+      r.state.confirming = false;
+      r.state.awaiting = 'contactName';
+      const doc = advance === advanceInvoice ? 'invoice' : 'estimate';
+      r.speech = `I couldn't find anyone named ${attempted} in your contacts, sir. Who is the ${doc} for?`;
+    }
+  }
+  if (r.send) return { speech: await sender(r.send), state: null };
+  return { speech: r.speech, state: r.state };
 }
 const spotify = new SpotifyClient({
   clientId: process.env.SPOTIFY_CLIENT_ID,
@@ -276,37 +317,21 @@ async function routeVoice(text, pageOrigin = ORIGIN) {
     return out;
   }
 
-  // Estimates: collect template + square feet + price, read them back, and only
-  // send on an explicit yes. Deterministic so the AI can never invent numbers or
-  // fire one off unprompted. An in-progress estimate captures every turn until
-  // it's sent or cancelled.
-  if ((pendingQuote || isQuoteStart(text)) && ghl.isConfigured()) {
-    let r = advanceQuote(pendingQuote, text);
-    // Verify a newly named contact actually exists before going any further —
-    // never move toward sending an estimate to a misheard or unknown name.
-    if (r.state && r.state.contactName && !r.state.contactResolved) {
-      const attempted = r.state.contactName;
-      const match = await resolveQuoteContact(attempted);
-      if (match) {
-        r.state.contactResolved = true;
-        r.state.contactId = match.id;
-        r.state.contactName = match.displayName;
-        if (r.state.confirming) r = advanceQuote(r.state, ''); // refresh the read-back with the real name
-      } else {
-        r.state.contactName = undefined;
-        r.state.contactId = undefined;
-        r.state.confirming = false;
-        r.state.awaiting = 'contactName';
-        r.speech = `I couldn't find anyone named ${attempted} in your contacts, sir. Who is the estimate for?`;
-      }
-    }
-    if (r.send) {
-      pendingQuote = null;
-      out.speech = await sendConfirmedQuote(r.send);
-    } else {
-      pendingQuote = r.state;
-      out.speech = r.speech;
-    }
+  // Estimates and invoices: collect template + customer + quantity + price, read
+  // them back, and only send on an explicit yes. Deterministic so the AI can
+  // never invent numbers, fire one off unprompted, or take side actions (like
+  // marking an opportunity won). An in-progress document captures every turn
+  // until it's sent or cancelled.
+  if (ghl.isConfigured() && (pendingInvoice || (!pendingQuote && isInvoiceStart(text)))) {
+    const { speech, state } = await runDocTurn(advanceInvoice, pendingInvoice, text, sendConfirmedInvoice);
+    pendingInvoice = state;
+    out.speech = speech;
+    return out;
+  }
+  if (ghl.isConfigured() && (pendingQuote || isQuoteStart(text))) {
+    const { speech, state } = await runDocTurn(advanceQuote, pendingQuote, text, sendConfirmedQuote);
+    pendingQuote = state;
+    out.speech = speech;
     return out;
   }
 

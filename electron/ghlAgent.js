@@ -307,10 +307,13 @@ async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT
         '9 AM-2 PM, Sunday closed, hourly slots. Always book BEFORE 2 PM and offer a ' +
         'morning slot first; only go past 2 if the customer truly cannot do earlier. Check ' +
         'free slots before promising a time. Every appointment — create AND reschedule — ' +
-        'stays assigned to Dan (never the round-robin). Estimates are sent through a ' +
-        'separate confirmation step, NOT by you — never send or fabricate an estimate. If ' +
-        'asked to send one, say you will need the template, the square footage, and the ' +
-        'price per square foot, and that you will confirm before sending. ' +
+        'stays assigned to Dan (never the round-robin). Estimates AND invoices are sent ' +
+        'through a separate confirmation step, NOT by you — never send or fabricate an ' +
+        'estimate or invoice, and never mark an opportunity won/lost or message a customer ' +
+        'as a side effect of an estimate or invoice request. If asked to send one, say you ' +
+        'will need the template, the customer, the quantity, and the price, and that you ' +
+        'will confirm before sending. Never act on a vague or incomplete request — ask for ' +
+        'the missing details instead of guessing or taking an action. ' +
         'Never quote a price or recommend a coating system; if a customer ' +
         'asks price twice, escalate to Dan (only exception: a 2-car garage under 500 sq ft ' +
         'is $2,000-3,000 and routes to Joseph Ruiz, opportunity moved to Dead). Any price ' +
