@@ -12,7 +12,7 @@ const path = require('path');
 
 const KNOWLEDGE_DIR = path.join(__dirname, 'knowledge');
 // Keep the injected block bounded so the prompt stays fast.
-const MAX_CHARS = 12000;
+const MAX_CHARS = 16000;
 
 /**
  * @returns {string} concatenated knowledge, or '' if none.

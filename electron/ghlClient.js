@@ -13,6 +13,11 @@
 
 const BASE_URL = 'https://services.leadconnectorhq.com';
 const API_VERSION = '2021-07-28';
+// The calendar is round-robin: any create/reschedule WITHOUT an explicit
+// assignedUserId re-rolls the appointment onto the wrong user and it vanishes
+// from Dan's calendar. Enforced in code, not just prompts. (From the GHL
+// session handoff; override with GHL_APPOINTMENT_USER_ID.)
+const DEFAULT_APPOINTMENT_USER = () => process.env.GHL_APPOINTMENT_USER_ID || '6pvVVC5ph1zf9m5Z7IKj';
 
 class GHLClient {
   constructor({ token = process.env.GHL_API_TOKEN, locationId = process.env.GHL_LOCATION_ID, fetchImpl = fetch } = {}) {
@@ -57,6 +62,17 @@ class GHLClient {
   addContactTags({ contactId, tags }) {
     return this.request('POST', `/contacts/${contactId}/tags`, { body: { tags } });
   }
+  /** Newest contacts first — the GET list endpoint has no reliable order, so
+   *  "latest lead" questions must use this search endpoint's sort. */
+  latestContacts({ limit = 10 } = {}) {
+    return this.request('POST', '/contacts/search', {
+      body: {
+        locationId: this.locationId,
+        pageLimit: Math.min(Number(limit) || 10, 50),
+        sort: [{ field: 'dateAdded', direction: 'desc' }],
+      },
+    });
+  }
 
   // --- Pipelines & opportunities ---
   listPipelines() {
@@ -80,14 +96,24 @@ class GHLClient {
       query: { locationId: this.locationId, startTime, endTime, calendarId },
     });
   }
-  getFreeSlots({ calendarId, startDate, endDate, timezone }) {
+  getFreeSlots({ calendarId, startDate, endDate, timezone, userId }) {
+    // Round-robin availability differs per user — check Dan's slots by default.
     return this.request('GET', `/calendars/${calendarId}/free-slots`, {
-      query: { startDate, endDate, timezone },
+      query: { startDate, endDate, timezone, userId: userId || DEFAULT_APPOINTMENT_USER() },
     });
   }
-  createAppointment({ calendarId, contactId, startTime, endTime, title }) {
+  createAppointment({ calendarId, contactId, startTime, endTime, title, assignedUserId }) {
     return this.request('POST', '/calendars/events/appointments', {
-      body: { locationId: this.locationId, calendarId, contactId, startTime, endTime, title, appointmentStatus: 'confirmed' },
+      body: {
+        locationId: this.locationId,
+        calendarId,
+        contactId,
+        startTime,
+        endTime,
+        title,
+        appointmentStatus: 'confirmed',
+        assignedUserId: assignedUserId || DEFAULT_APPOINTMENT_USER(),
+      },
     });
   }
 
@@ -112,6 +138,8 @@ class GHLClient {
         return this.createContact(args);
       case 'ghl_add_contact_tags':
         return this.addContactTags(args);
+      case 'ghl_latest_leads':
+        return this.latestContacts(args);
       case 'ghl_list_pipelines':
         return this.listPipelines();
       case 'ghl_list_opportunities':
@@ -189,6 +217,17 @@ const TOOLS = [
           pipelineId: { type: 'string' },
           limit: { type: 'integer' },
         },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ghl_latest_leads',
+      description: 'The newest leads/contacts, sorted newest first. ALWAYS use this for "latest/last/newest lead(s) or contact(s)" questions.',
+      parameters: {
+        type: 'object',
+        properties: { limit: { type: 'integer', description: 'How many, default 10' } },
       },
     },
   },

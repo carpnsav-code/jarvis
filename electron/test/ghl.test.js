@@ -49,6 +49,21 @@ test('dispatch routes tool names to methods', async () => {
   assert.deepEqual(r, { pipelines: [{ id: 'p1' }] });
 });
 
+test('createAppointment always carries an assignedUserId (round-robin fix)', async () => {
+  const rec = [];
+  const c = new GHLClient({ token: 't', locationId: 'l', fetchImpl: stubFetch([['/calendars/events/appointments', () => ok({ ok: true })]], rec) });
+  await c.createAppointment({ calendarId: 'cal', contactId: 'ct', startTime: 'a', endTime: 'b' });
+  const body = JSON.parse(rec[0].opts.body);
+  assert.ok(body.assignedUserId, 'assignedUserId must default so the appointment lands on Dan\'s calendar');
+});
+
+test('getFreeSlots checks per-user availability by default', async () => {
+  const rec = [];
+  const c = new GHLClient({ token: 't', locationId: 'l', fetchImpl: stubFetch([['/free-slots', () => ok({})]], rec) });
+  await c.getFreeSlots({ calendarId: 'cal', startDate: '1', endDate: '2' });
+  assert.ok(new URL(rec[0].url).searchParams.get('userId'), 'free slots must be checked for a specific user');
+});
+
 test('request throws a clear error on non-2xx', async () => {
   const c = new GHLClient({ token: 't', locationId: 'l', fetchImpl: async () => ({ ok: false, status: 401, text: async () => 'unauthorized' }) });
   await assert.rejects(() => c.listContacts(), /HTTP 401/);
