@@ -100,6 +100,22 @@ let lastSpotifyState = null;
 // An estimate being collected/confirmed across turns (null when none pending).
 let pendingQuote = null;
 
+// Look up a name against real GHL contacts (same fuzzy match as texting).
+// Returns { id, displayName } on a match, null if no such contact.
+async function resolveQuoteContact(name) {
+  try {
+    const d = await ghl.listContacts({ query: name, limit: 10 });
+    const contacts = d.contacts || [];
+    const norm = (s) => String(s || '').toLowerCase();
+    const tokens = norm(name).split(/\s+/).filter(Boolean);
+    const displayName = (c) => c.contactName || `${c.firstName || ''} ${c.lastName || ''}`.trim() || c.email || 'contact';
+    const match = contacts.find((c) => tokens.every((tk) => norm(displayName(c)).includes(tk)));
+    return match ? { id: match.id, displayName: displayName(match) } : null;
+  } catch {
+    return null; // treat a lookup failure as "not found" — never send blind
+  }
+}
+
 // Actually send a confirmed estimate and speak the result.
 async function sendConfirmedQuote(fields) {
   try {
@@ -265,7 +281,25 @@ async function routeVoice(text, pageOrigin = ORIGIN) {
   // fire one off unprompted. An in-progress estimate captures every turn until
   // it's sent or cancelled.
   if ((pendingQuote || isQuoteStart(text)) && ghl.isConfigured()) {
-    const r = advanceQuote(pendingQuote, text);
+    let r = advanceQuote(pendingQuote, text);
+    // Verify a newly named contact actually exists before going any further —
+    // never move toward sending an estimate to a misheard or unknown name.
+    if (r.state && r.state.contactName && !r.state.contactResolved) {
+      const attempted = r.state.contactName;
+      const match = await resolveQuoteContact(attempted);
+      if (match) {
+        r.state.contactResolved = true;
+        r.state.contactId = match.id;
+        r.state.contactName = match.displayName;
+        if (r.state.confirming) r = advanceQuote(r.state, ''); // refresh the read-back with the real name
+      } else {
+        r.state.contactName = undefined;
+        r.state.contactId = undefined;
+        r.state.confirming = false;
+        r.state.awaiting = 'contactName';
+        r.speech = `I couldn't find anyone named ${attempted} in your contacts, sir. Who is the estimate for?`;
+      }
+    }
     if (r.send) {
       pendingQuote = null;
       out.speech = await sendConfirmedQuote(r.send);
