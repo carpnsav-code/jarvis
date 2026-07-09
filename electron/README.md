@@ -208,6 +208,17 @@ PDF writer (`documentBuilder.js`) or a text file is saved straight to your
 **Desktop** with a tidy timestamped name. Notes stay as your literal words; PDFs
 and documents get brain-generated bodies.
 
+## GoHighLevel (live CRM control)
+
+With `GHL_API_TOKEN` + `GHL_LOCATION_ID` set, Jarvis actually *operates* your
+GoHighLevel account by voice — "what are my open deals", "how many contacts do
+I have", "text Sam saying I'm running late". `ghlClient.js` is a live API client
+(same base URL / version / auth as the GHL repo); `ghlAgent.js` runs a Groq
+tool-calling loop that lets the model pick and call the CRM tools, execute them
+for real, and speak the result. Multi-step requests work (find a contact, then
+message them). Without the token it politely says it's not connected. Verified
+live: it read back a real pipeline and open-deal count.
+
 ## App integrations (keyless)
 
 Rather than a full OAuth flow per service, these open the service's own compose

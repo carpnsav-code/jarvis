@@ -36,6 +36,8 @@ const outcome = require('./outcome');
 const { parseCreateCommand, createFile } = require('./fileCreation');
 const { parseProductivityCommand, resolveProductivity } = require('./productivity');
 const { loadKnowledge } = require('./knowledge');
+const { GHLClient } = require('./ghlClient');
+const { isGhlQuery, runGhlAgent } = require('./ghlAgent');
 const {
   parseSpotifyCommand,
   runSpotifyCommand,
@@ -74,6 +76,7 @@ const brain = new GroqBrain({
   knowledge: loadKnowledge(),
   factsProvider: () => memory.factsContext(),
 });
+const ghl = new GHLClient();
 
 function openUrl(url) {
   const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
@@ -176,6 +179,12 @@ async function routeVoice(text) {
   const create = parseCreateCommand(text);
   if (create) {
     out.speech = await runCreateFile(create);
+    return out;
+  }
+
+  // Live GoHighLevel operations ("what are my open deals", "text Sam …").
+  if (isGhlQuery(text) && ghl.isConfigured()) {
+    out.speech = await runGhlAgent(text, { keys: loadGroqKeys(), client: ghl });
     return out;
   }
 

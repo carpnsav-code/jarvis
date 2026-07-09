@@ -34,6 +34,8 @@ const elevenlabs = require('./elevenlabs');
 const outcome = require('./outcome');
 const { parseCreateCommand, createFile } = require('./fileCreation');
 const { parseProductivityCommand, resolveProductivity } = require('./productivity');
+const { GHLClient } = require('./ghlClient');
+const { isGhlQuery, runGhlAgent } = require('./ghlAgent');
 const {
   parseSpotifyCommand,
   runSpotifyCommand,
@@ -50,6 +52,7 @@ let serverInfo = null;
 let memory = null;
 let spotify = null;
 let brain = null;
+const ghl = new GHLClient();
 
 const GREETING = process.env.JARVIS_GREETING || 'Systems online. Say the word whenever you need me, sir.';
 
@@ -176,6 +179,11 @@ async function routeVoice(text) {
   const create = parseCreateCommand(text);
   if (create) {
     return runCreateFile(create);
+  }
+
+  // 3b. Live GoHighLevel operations.
+  if (isGhlQuery(text) && ghl.isConfigured()) {
+    return { speech: await runGhlAgent(text, { keys: loadGroqKeys(), client: ghl }), handled: true };
   }
 
   // 4. Productivity deep links: draft an email / add a calendar event.
