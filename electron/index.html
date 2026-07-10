@@ -6,16 +6,16 @@
     <title>J.A.R.V.I.S.</title>
     <style>
       :root {
-        /* Black + green "node graph" theme (var names kept as --cyan* to avoid churn). */
-        --cyan: #35ff77;
-        --cyan-bright: #c3ffd9;
-        --cyan-dim: rgba(53, 255, 119, 0.5);
-        --amber: #ffcf40;
-        --bg: #020603;
-        --panel: rgba(4, 26, 14, 0.45);
-        --panel-brd: rgba(53, 255, 119, 0.30);
-        --text: #d9ffe4;
-        --text-dim: #5c8a6c;
+        /* Red + black theme (var names kept as --cyan* to avoid churn). */
+        --cyan: #ff2b2b;
+        --cyan-bright: #ff8a8a;
+        --cyan-dim: rgba(255, 43, 43, 0.5);
+        --amber: #ff9a4d;
+        --bg: #0a0304;
+        --panel: rgba(30, 6, 8, 0.45);
+        --panel-brd: rgba(255, 43, 43, 0.30);
+        --text: #ffd6d6;
+        --text-dim: #a06a6a;
         --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
         --font: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
       }
@@ -26,7 +26,7 @@
         color: var(--text);
         background: var(--bg);
         overflow: hidden;
-        text-shadow: 0 0 12px rgba(53, 255, 119, 0.22);
+        text-shadow: 0 0 12px rgba(255, 43, 43, 0.25);
       }
 
       /* holographic projection canvas */
@@ -36,7 +36,7 @@
       .fx {
         position: fixed; inset: 0; z-index: 2; pointer-events: none;
         background:
-          repeating-linear-gradient(0deg, rgba(0,0,0,0) 0 2px, rgba(0, 20, 8, 0.28) 2px 3px),
+          repeating-linear-gradient(0deg, rgba(0,0,0,0) 0 2px, rgba(30, 0, 0, 0.28) 2px 3px),
           radial-gradient(120% 100% at 50% 40%, transparent 55%, rgba(0,0,0,0.75) 100%);
         mix-blend-mode: multiply;
         animation: flicker 6s infinite;
@@ -73,7 +73,7 @@
       }
       .chip:hover { color: var(--cyan-bright); border-color: var(--cyan); box-shadow: 0 0 16px var(--cyan-dim); }
       .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
-      .chip.off { color: #2f4a3a; } .chip.off .dot { background: #2f4a3a; box-shadow: none; }
+      .chip.off { color: #3a4a5a; } .chip.off .dot { background: #3a4a5a; box-shadow: none; }
 
       /* main */
       .main { flex: 1; display: grid; grid-template-columns: 1fr 340px; gap: 26px; min-height: 0; margin-top: 10px; }
@@ -109,26 +109,26 @@
       .bar { display: flex; gap: 12px; align-items: center; margin-top: 16px; }
       .bar input {
         flex: 1; padding: 15px 18px; font-size: 15px; color: var(--cyan-bright); font-family: var(--font);
-        background: rgba(4, 20, 12, 0.6); border: 1px solid var(--panel-brd); border-radius: 5px; outline: none;
+        background: rgba(20, 4, 6, 0.6); border: 1px solid var(--panel-brd); border-radius: 5px; outline: none;
         transition: border-color .2s, box-shadow .2s;
       }
-      .bar input::placeholder { color: #3a6b4e; }
+      .bar input::placeholder { color: #7a4a4a; }
       .bar input:focus { border-color: var(--cyan); box-shadow: 0 0 20px var(--cyan-dim); }
       .bar.listening input { border-color: var(--cyan); animation: pulseBar 1.5s infinite; }
       @keyframes pulseBar {
-        0% { box-shadow: 0 0 0 0 rgba(53,255,119,.45); } 70% { box-shadow: 0 0 0 14px rgba(53,255,119,0); }
-        100% { box-shadow: 0 0 0 0 rgba(53,255,119,0); }
+        0% { box-shadow: 0 0 0 0 rgba(255,43,43,.45); } 70% { box-shadow: 0 0 0 14px rgba(255,43,43,0); }
+        100% { box-shadow: 0 0 0 0 rgba(255,43,43,0); }
       }
       .btn { padding: 14px 18px; font-size: 14px; font-family: var(--mono); letter-spacing: 1px; color: var(--cyan);
         background: var(--panel); border: 1px solid var(--cyan-dim); border-radius: 5px; cursor: pointer;
         text-transform: uppercase; transition: color .2s, box-shadow .2s, background .2s; }
       .btn:hover { color: var(--bg); background: var(--cyan); box-shadow: 0 0 22px var(--cyan); }
-      .btn.stop { background: rgba(53,255,119,0.18); border-color: var(--cyan); color: var(--cyan-bright); font-weight: 700; }
+      .btn.stop { background: rgba(255,43,43,0.18); border-color: var(--cyan); color: var(--cyan-bright); font-weight: 700; }
       .stage { cursor: pointer; }
       /* Activation overlay — the single tap browsers require to unlock mic+audio */
       #activate {
         position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
-        background: rgba(1, 4, 2, 0.82); backdrop-filter: blur(6px);
+        background: rgba(4, 1, 2, 0.82); backdrop-filter: blur(6px);
         cursor: pointer; transition: opacity .5s ease;
       }
       #activate.hide { opacity: 0; pointer-events: none; }
@@ -137,7 +137,7 @@
         display: grid; place-items: center; text-align: center;
         border: 2px solid var(--cyan); color: var(--cyan-bright);
         font: 13px/1.6 var(--mono); letter-spacing: 3px; text-transform: uppercase;
-        box-shadow: 0 0 44px var(--cyan-dim), inset 0 0 30px rgba(53,255,119,0.15);
+        box-shadow: 0 0 44px var(--cyan-dim), inset 0 0 30px rgba(255,43,43,0.15);
         animation: actPulse 2s ease-in-out infinite;
       }
       @keyframes actPulse {
@@ -343,127 +343,22 @@
           }
         });
 
-        // --- the AI human: an original big-head cartoon mascot that talks ------
-        // Drawn as flat cartoon shapes (bezier fills + dark outlines), coloured to
-        // match the reference: peach skin, yellow shirt, red overalls, light-blue
-        // shoes. The mouth opens with Jarvis's speaking amplitude; the eyes blink.
-        // An original character — not a copy of any existing one.
-        const COL = {
-          ink: '#241712', skin: '#f7d1ab', shirt: '#f2d54a',
-          red: '#e0362f', shoe: '#96d4ea', eye: '#ffffff',
-        };
+        // --- the AI core: a glowing orb with two eyes --------------------------
+        // A dark sphere with two white eyes, wrapped by luminous red/white light
+        // trails that swirl around it in 3D (front trails drawn over the sphere,
+        // back trails behind it). The eyes blink and react to Jarvis's state; the
+        // swirl brightens and spins up while speaking.
         let nextBlink = 1.5 + Math.random() * 3;
         let blinkStart = -1;
-        // Representative control-point counts for the stats HUD.
-        const GEO = { nodes: 174, lines: 158 };
-
-        // Draw the mascot in unit coordinates (origin at its centre, y down).
-        // `mouth` 0..1 opens the mouth; `eyeOpen` 0..1 drives the blink.
-        function drawMascot(mouth, eyeOpen) {
-          const ink = COL.ink;
-          const LW = 0.05;
-          ctx.lineJoin = 'round';
-          ctx.lineCap = 'round';
-          const shape = (build, fill) => {
-            ctx.beginPath();
-            build();
-            if (fill) { ctx.fillStyle = fill; ctx.fill(); }
-            ctx.lineWidth = LW; ctx.strokeStyle = ink; ctx.stroke();
-          };
-
-          // shoes
-          for (const sx of [-0.3, 0.3]) shape(() => ctx.ellipse(sx, 1.62, 0.34, 0.17, 0, 0, Math.PI * 2), COL.shoe);
-          // overall pants (red), two legs with a centre notch
-          shape(() => {
-            ctx.moveTo(-0.56, 0.5); ctx.lineTo(0.56, 0.5);
-            ctx.lineTo(0.52, 1.5); ctx.lineTo(0.1, 1.5);
-            ctx.lineTo(0.06, 0.95); ctx.lineTo(-0.06, 0.95);
-            ctx.lineTo(-0.1, 1.5); ctx.lineTo(-0.52, 1.5); ctx.closePath();
-          }, COL.red);
-          // shirt (yellow torso)
-          shape(() => {
-            ctx.moveTo(-0.6, -0.02);
-            ctx.bezierCurveTo(-0.66, 0.3, -0.6, 0.55, -0.5, 0.6);
-            ctx.lineTo(0.5, 0.6);
-            ctx.bezierCurveTo(0.6, 0.55, 0.66, 0.3, 0.6, -0.02);
-            ctx.bezierCurveTo(0.5, -0.2, -0.5, -0.2, -0.6, -0.02);
-            ctx.closePath();
-          }, COL.shirt);
-          // overall bib + straps (red)
-          shape(() => ctx.rect(-0.34, 0.02, 0.68, 0.5), COL.red);
-          for (const sx of [-0.28, 0.28]) shape(() => {
-            ctx.moveTo(sx - 0.06, 0.05); ctx.lineTo(sx - 0.06, -0.2);
-            ctx.lineTo(sx + 0.06, -0.22); ctx.lineTo(sx + 0.06, 0.05); ctx.closePath();
-          }, COL.red);
-          ctx.fillStyle = ink;
-          for (const sx of [-0.24, 0.24]) { ctx.beginPath(); ctx.arc(sx, 0.1, 0.03, 0, Math.PI * 2); ctx.fill(); }
-          // crossed arms (yellow sleeves + peach hands)
-          shape(() => { ctx.save(); ctx.translate(0, 0.34); ctx.rotate(-0.32); ctx.rect(-0.5, -0.11, 0.86, 0.22); ctx.restore(); }, COL.shirt);
-          shape(() => { ctx.save(); ctx.translate(0, 0.38); ctx.rotate(0.32); ctx.rect(-0.36, -0.11, 0.86, 0.22); ctx.restore(); }, COL.shirt);
-          shape(() => ctx.arc(-0.34, 0.5, 0.13, 0, Math.PI * 2), COL.skin);
-          shape(() => ctx.arc(0.34, 0.2, 0.13, 0, Math.PI * 2), COL.skin);
-          // neck
-          shape(() => ctx.rect(-0.2, -0.42, 0.4, 0.3), COL.skin);
-          // ears
-          for (const sx of [-1.0, 1.0]) shape(() => ctx.ellipse(sx, -1.18, 0.14, 0.18, 0, 0, Math.PI * 2), COL.skin);
-          // head (big cranium, narrow chin)
-          shape(() => {
-            ctx.moveTo(0, -2.28);
-            ctx.bezierCurveTo(0.98, -2.28, 1.2, -1.82, 1.06, -1.25);
-            ctx.bezierCurveTo(0.98, -0.8, 0.56, -0.42, 0.14, -0.36);
-            ctx.bezierCurveTo(0.05, -0.34, -0.05, -0.34, -0.14, -0.36);
-            ctx.bezierCurveTo(-0.56, -0.42, -0.98, -0.8, -1.06, -1.25);
-            ctx.bezierCurveTo(-1.2, -1.82, -0.98, -2.28, 0, -2.28);
-            ctx.closePath();
-          }, COL.skin);
-          // hair tuft
-          ctx.strokeStyle = ink; ctx.lineWidth = LW;
-          ctx.beginPath();
-          ctx.moveTo(-0.16, -2.16);
-          ctx.bezierCurveTo(-0.4, -2.5, -0.05, -2.62, 0.02, -2.32);
-          ctx.bezierCurveTo(0.16, -2.6, 0.42, -2.4, 0.22, -2.16);
-          ctx.stroke();
-          // eyes (big, half-lidded, smug)
-          const lidDrop = (1 - eyeOpen) * 0.55;
-          for (const sx of [-0.44, 0.44]) {
-            shape(() => ctx.ellipse(sx, -1.42, 0.4, 0.42, 0, 0, Math.PI * 2), COL.eye);
-            ctx.save();
-            ctx.beginPath(); ctx.ellipse(sx, -1.42, 0.4, 0.42, 0, 0, Math.PI * 2); ctx.clip();
-            ctx.fillStyle = COL.skin;
-            ctx.fillRect(sx - 0.45, -1.95, 0.9, (-1.68 + lidDrop) + 1.95); // droopy upper lid
-            ctx.restore();
-            ctx.strokeStyle = ink; ctx.lineWidth = LW * 1.1;
-            ctx.beginPath();
-            ctx.moveTo(sx - 0.4, -1.68 + lidDrop);
-            ctx.quadraticCurveTo(sx, -1.62 + lidDrop, sx + 0.4, -1.7 + lidDrop);
-            ctx.stroke();
-            ctx.fillStyle = ink;
-            ctx.beginPath(); ctx.arc(sx, -1.28, 0.13 * (0.35 + 0.65 * eyeOpen), 0, Math.PI * 2); ctx.fill();
-          }
-          // eyebrows (thin, angled)
-          ctx.strokeStyle = ink; ctx.lineWidth = LW;
-          ctx.beginPath(); ctx.moveTo(-0.78, -1.92); ctx.lineTo(-0.2, -1.82); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(0.78, -1.92); ctx.lineTo(0.2, -1.82); ctx.stroke();
-          // nose (small pointed bump, left of centre)
-          shape(() => {
-            ctx.moveTo(0.02, -1.12);
-            ctx.bezierCurveTo(-0.18, -1.02, -0.14, -0.9, 0.02, -0.9);
-            ctx.bezierCurveTo(0.08, -0.9, 0.06, -1.02, 0.02, -1.12);
-            ctx.closePath();
-          }, COL.skin);
-          // mouth
-          ctx.strokeStyle = ink; ctx.lineWidth = LW * 1.1;
-          if (mouth < 0.06) {
-            ctx.beginPath(); ctx.moveTo(-0.12, -0.74);
-            ctx.quadraticCurveTo(0.12, -0.66, 0.36, -0.78); ctx.stroke(); // smirk
-          } else {
-            const my = 0.05 + 0.16 * mouth;
-            ctx.beginPath(); ctx.ellipse(0.12, -0.72, 0.2, my, 0, 0, Math.PI * 2);
-            ctx.fillStyle = ink; ctx.fill(); ctx.stroke();
-            ctx.fillStyle = COL.red;
-            ctx.beginPath(); ctx.ellipse(0.12, -0.72 + my * 0.5, 0.12, my * 0.4, 0, 0, Math.PI); ctx.fill();
-          }
-        }
+        let ringRot = 0;
+        const SAMPLES = 90;
+        const trails = [
+          { tilt: 1.15, speed: 1.00, off: 0.0, rad: 1.34, hot: 0.9 },
+          { tilt: 1.30, speed: -0.72, off: 2.1, rad: 1.20, hot: 1.3 },
+          { tilt: 1.02, speed: 1.35, off: 4.0, rad: 1.48, hot: 0.7 },
+        ];
+        // Flavour telemetry for the stats HUD (swirl sample points + segments).
+        const GEO = { nodes: SAMPLES * trails.length, lines: SAMPLES * trails.length - trails.length };
 
         // Rising "upsweep" particle stream near the base of the sphere.
         const stream = Array.from({ length: 50 }, () => ({
@@ -480,10 +375,10 @@
           warm: Math.random(),
         }));
         const nebula = [
-          { x: 0.22, y: 0.28, r: 0.55, c: [20, 140, 80] },
-          { x: 0.80, y: 0.22, r: 0.55, c: [16, 110, 120] },
-          { x: 0.68, y: 0.82, r: 0.6, c: [30, 160, 70] },
-          { x: 0.30, y: 0.78, r: 0.5, c: [18, 90, 60] },
+          { x: 0.22, y: 0.28, r: 0.55, c: [150, 24, 60] },
+          { x: 0.80, y: 0.22, r: 0.55, c: [90, 24, 120] },
+          { x: 0.68, y: 0.82, r: 0.6, c: [170, 30, 44] },
+          { x: 0.30, y: 0.78, r: 0.5, c: [70, 30, 120] },
         ];
         let drift = 0;
 
@@ -494,7 +389,7 @@
           return 0.32 + Math.sin(t * 1.4) * 0.14; // idle breathing
         }
         function color(state) {
-          return state === 'thinking' ? [255, 207, 64] : [53, 255, 119];
+          return state === 'thinking' ? [255, 154, 77] : [255, 43, 43];
         }
 
         // Stat readouts + FPS (real, measured, not decorative).
@@ -547,9 +442,9 @@
             }
             for (const s of stars) {
               const a = 0.35 + 0.65 * Math.abs(Math.sin(t * s.sp + s.tw));
-              const rr = 190 + Math.floor(s.warm * 60);
-              const gg = 255;
-              ctx.fillStyle = `rgba(${rr},${gg},${210 + Math.floor((1 - s.warm) * 45)},${a})`;
+              const g2 = 200 + Math.floor(s.warm * 55);
+              const b2 = 200 + Math.floor((1 - s.warm) * 45);
+              ctx.fillStyle = `rgba(255,${g2},${b2},${a})`;
               ctx.beginPath();
               ctx.arc(s.x * W, s.y * H, s.r * devicePixelRatio, 0, Math.PI * 2);
               ctx.fill();
@@ -566,55 +461,89 @@
           ctx.save();
           ctx.translate(cx, cy);
 
-          // --- expression + motion driven by Jarvis's state ---
-          let mouth;
-          if (state === 'speaking') mouth = Math.min(1, (0.2 + Math.max(0, amp - 0.5) * 0.7) * (0.4 + 0.6 * Math.abs(Math.sin(t * 13))));
-          else if (state === 'listening') mouth = 0.05;
-          else mouth = 0;
-
+          // --- blink + state dynamics ---
           if (blinkStart < 0 && t > nextBlink) blinkStart = t;
           let eyeOpen = 1;
           if (blinkStart >= 0) {
-            const p = (t - blinkStart) / 0.14;
-            if (p >= 1) { blinkStart = -1; nextBlink = t + 1.4 + Math.random() * 3.5; }
+            const p = (t - blinkStart) / 0.13;
+            if (p >= 1) { blinkStart = -1; nextBlink = t + 1.6 + Math.random() * 3.5; }
             else eyeOpen = Math.abs(1 - 2 * p); // 1 → 0 → 1
           }
-          const breathe = Math.sin(t * 1.6) * 0.02 + (state === 'speaking' ? Math.sin(t * 6) * 0.012 : 0);
-          const tilt = (0.02 + cfg.pull * 0.05) * Math.sin(t * 0.6);
-          const S = Rp * 1.08;
+          const pulse = state === 'speaking' ? (0.65 + 0.5 * Math.abs(Math.sin(t * 12)))
+            : state === 'listening' ? 0.55 : 0.36;
+          const spin = 0.5 + cfg.pull * 1.4 + (state === 'speaking' ? 1.6 * pulse : state === 'thinking' ? 1.3 : 0.3);
+          ringRot += 0.01 * spin;
+          const Rc = Rp * 0.92;               // sphere (core) radius
           const visible = GEO.nodes;
+          const white = (a) => `rgba(255,236,236,${Math.min(1, a) * cfg.opacity})`;
 
-          // soft state-tinted glow halo behind the mascot (bloom control)
-          if (cfg.bloom) {
-            const halo = ctx.createRadialGradient(0, -0.2 * S, 0, 0, -0.2 * S, S * 2.4);
-            halo.addColorStop(0, rgba(0.13));
-            halo.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.fillStyle = halo;
-            ctx.fillRect(-W, -H, W * 2, H * 2);
+          // a point on a trail's tilted 3D orbit → screen x,y + depth z (-1..1)
+          function orbit(tr, ang) {
+            const py = Math.sin(ang);
+            return { x: Math.cos(ang) * tr.rad * Rc, y: py * Math.cos(tr.tilt) * tr.rad * Rc, z: py * Math.sin(tr.tilt) };
+          }
+          // draw the segments of a trail on one side of the sphere (front / back)
+          function drawTrail(tr, front) {
+            const head = ringRot * tr.speed + tr.off;
+            ctx.lineCap = 'round';
+            for (let i = 0; i < SAMPLES; i++) {
+              const a1 = (i / SAMPLES) * Math.PI * 2, a2 = ((i + 1) / SAMPLES) * Math.PI * 2;
+              const p = orbit(tr, a1), q = orbit(tr, a2);
+              if (((p.z + q.z) / 2 >= 0) !== front) continue;
+              const d = (((a1 - head) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+              const bri = Math.pow(1 - d / (Math.PI * 2), tr.hot * 3) * pulse * 1.5;
+              if (bri < 0.02) continue;
+              const depth = 0.55 + 0.45 * ((p.z + 1) / 2);
+              const mix = Math.min(1, bri);
+              ctx.strokeStyle = `rgba(255,${Math.round(70 + 166 * mix)},${Math.round(70 + 150 * mix)},${Math.min(1, bri) * depth * cfg.opacity})`;
+              ctx.lineWidth = (1 + 5 * bri) * depth * devicePixelRatio;
+              ctx.shadowBlur = cfg.bloom ? 14 * bri * devicePixelRatio : 0;
+              ctx.shadowColor = rgba(0.9);
+              ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+            }
+            ctx.shadowBlur = 0;
           }
 
-          ctx.save();
-          ctx.translate(0, breathe * S);
-          ctx.rotate(tilt);
-          ctx.scale(S, S);
-          ctx.translate(0, 0.35); // vertical centring
-          ctx.globalAlpha = cfg.opacity;
-          ctx.shadowBlur = cfg.bloom ? 6 : 0;
-          ctx.shadowColor = rgba(0.55);
-          drawMascot(mouth, eyeOpen);
-          ctx.shadowBlur = 0;
-          ctx.globalAlpha = 1;
-          ctx.restore();
+          // 1) back half of every swirl (behind the sphere)
+          for (const tr of trails) drawTrail(tr, false);
 
-          // subsystem labels floating beside the mascot
+          // 2) the dark sphere
+          const core = ctx.createRadialGradient(-Rc * 0.25, -Rc * 0.3, Rc * 0.1, 0, 0, Rc);
+          core.addColorStop(0, 'rgba(40,10,20,1)');
+          core.addColorStop(0.55, 'rgba(14,4,8,1)');
+          core.addColorStop(1, 'rgba(3,1,2,1)');
+          ctx.fillStyle = core;
+          ctx.beginPath(); ctx.arc(0, 0, Rc, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = rgba(0.18); ctx.lineWidth = 1.5 * devicePixelRatio;
+          ctx.beginPath(); ctx.arc(0, 0, Rc * 0.82, 0, Math.PI * 2); ctx.stroke();
+          const topg = ctx.createRadialGradient(0, -Rc * 0.5, 0, 0, -Rc * 0.5, Rc * 0.95);
+          topg.addColorStop(0, rgba(0.14)); topg.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = topg;
+          ctx.beginPath(); ctx.arc(0, 0, Rc, 0, Math.PI * 2); ctx.fill();
+
+          // 3) the two eyes
+          const eyeR = Rc * 0.11, eyeDX = Rc * 0.26;
+          const bob = state === 'speaking' ? Math.sin(t * 9) * Rc * 0.02 : 0;
+          for (const sx of [-eyeDX, eyeDX]) {
+            ctx.save();
+            ctx.shadowBlur = cfg.bloom ? 18 * devicePixelRatio : 0;
+            ctx.shadowColor = white(0.9);
+            ctx.fillStyle = white(0.98);
+            ctx.beginPath();
+            ctx.ellipse(sx, bob, eyeR, eyeR * (0.15 + 0.85 * eyeOpen), 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
+
+          // 4) front half of every swirl (over the sphere)
+          for (const tr of trails) drawTrail(tr, true);
+
+          // subsystem labels floating beside the orb
           if (cfg.labels) {
             ctx.font = `${10 * devicePixelRatio}px ${getComputedStyle(document.body).fontFamily}`;
             ctx.textBaseline = 'middle';
-            const tags = [['BRAIN', -0.2 * S, -2.15 * S], ['VOICE', 0.9 * S, -0.45 * S], ['MEMORY', -1.55 * S, -1.15 * S]];
-            for (const [txt, lx, ly] of tags) {
-              ctx.fillStyle = rgba(0.55);
-              ctx.fillText(txt, lx, ly);
-            }
+            const tags = [['BRAIN', -0.2 * Rc, -1.75 * Rc], ['VOICE', 1.15 * Rc, 0.2 * Rc], ['MEMORY', -1.95 * Rc, -0.3 * Rc]];
+            for (const [txt, lx, ly] of tags) { ctx.fillStyle = rgba(0.5); ctx.fillText(txt, lx, ly); }
           }
 
           // rising upsweep particle stream (base emitter)
