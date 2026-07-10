@@ -109,10 +109,10 @@
       .bar { display: flex; gap: 12px; align-items: center; margin-top: 16px; }
       .bar input {
         flex: 1; padding: 15px 18px; font-size: 15px; color: var(--cyan-bright); font-family: var(--font);
-        background: rgba(20, 4, 6, 0.6); border: 1px solid var(--panel-brd); border-radius: 5px; outline: none;
+        background: rgba(4, 14, 26, 0.6); border: 1px solid var(--panel-brd); border-radius: 5px; outline: none;
         transition: border-color .2s, box-shadow .2s;
       }
-      .bar input::placeholder { color: #7a4a4a; }
+      .bar input::placeholder { color: #3f5a70; }
       .bar input:focus { border-color: var(--cyan); box-shadow: 0 0 20px var(--cyan-dim); }
       .bar.listening input { border-color: var(--cyan); animation: pulseBar 1.5s infinite; }
       @keyframes pulseBar {
@@ -145,47 +145,6 @@
         50% { transform: scale(1.05); box-shadow: 0 0 60px var(--cyan); }
       }
 
-      /* --- Data-dashboard overlays (stats / controls / hotkeys), left edge --- */
-      .dash {
-        position: fixed; z-index: 6; left: 34px; width: 202px;
-        font: 11px/1.5 var(--mono); pointer-events: auto;
-      }
-      .dash h2 { margin: 0 0 10px; font: 10px/1 var(--mono); letter-spacing: 3px; text-transform: uppercase; color: var(--cyan); }
-      .dash-stats { top: 108px; }
-      .dash-row { display: flex; align-items: center; justify-content: space-between; padding: 3px 0;
-        color: var(--text-dim); text-transform: uppercase; letter-spacing: 1.5px; font-size: 10px; }
-      .dash-row b { color: var(--cyan-bright); font-weight: 600; font-size: 11px; }
-      .dash-row.status { margin-top: 8px; padding-top: 9px; border-top: 1px solid var(--panel-brd); gap: 8px; justify-content: flex-start; }
-      .dash-row.status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); transition: background .2s, box-shadow .2s; }
-      .dash-row.status .dot.think { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
-      .dash-row.status b { font-size: 10px; letter-spacing: 2px; }
-
-      .dash-controls { top: 264px; }
-      .dctl-toggle { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-      .dctl-toggle span { color: var(--text-dim); text-transform: uppercase; letter-spacing: 1.5px; font-size: 10px; }
-      .chip.small { padding: 5px 9px; font-size: 9px; gap: 6px; }
-      .dctl-slider { display: block; margin-bottom: 11px; }
-      .dctl-slider .lbl { display: flex; justify-content: space-between; color: var(--text-dim); text-transform: uppercase;
-        letter-spacing: 1.5px; font-size: 10px; margin-bottom: 5px; }
-      .dctl-slider .lbl b { color: var(--cyan-bright); font-weight: 600; }
-      .dctl-slider input[type="range"] {
-        -webkit-appearance: none; appearance: none; width: 100%; height: 3px;
-        background: var(--panel-brd); border-radius: 2px; outline: none; display: block;
-      }
-      .dctl-slider input[type="range"]::-webkit-slider-thumb {
-        -webkit-appearance: none; width: 11px; height: 11px; border-radius: 50%;
-        background: var(--cyan); box-shadow: 0 0 8px var(--cyan); cursor: pointer;
-      }
-      .dctl-slider input[type="range"]::-moz-range-thumb {
-        width: 11px; height: 11px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan);
-        border: none; cursor: pointer;
-      }
-
-      .dash-keys { bottom: 96px; }
-      .key-row { display: flex; gap: 9px; align-items: center; padding: 3px 0; color: var(--text-dim); font-size: 10px; }
-      kbd { font: 10px var(--mono); background: var(--panel); border: 1px solid var(--panel-brd); border-radius: 3px;
-        padding: 2px 6px; color: var(--cyan-bright); white-space: nowrap; }
-
       ::-webkit-scrollbar { width: 6px; }
       ::-webkit-scrollbar-thumb { background: var(--cyan-dim); border-radius: 6px; }
       @media (max-width: 820px) {
@@ -200,7 +159,6 @@
         .side .panel:first-child { display: none; } /* hide the video panel on phones */
         .side .panel:last-child { max-height: 30vh; }
         .bar input { font-size: 16px; } /* 16px avoids iOS zoom-on-focus */
-        .dash { display: none; } /* the graph HUD needs room the phone doesn't have */
       }
     </style>
   </head>
@@ -209,37 +167,6 @@
     <div id="activate"><div class="ring-btn">Tap to<br />activate<br />JARVIS</div></div>
     <div class="fx"></div>
     <div class="hud"><span class="bl"></span><span class="br"></span></div>
-
-    <!-- Data-dashboard HUD: real stats + live controls over the node sphere -->
-    <div class="dash dash-stats panel" id="dash-stats">
-      <div class="dash-row"><span>Nodes</span><b id="st-nodes">0</b></div>
-      <div class="dash-row"><span>Visible</span><b id="st-visible">0</b></div>
-      <div class="dash-row"><span>Lines</span><b id="st-lines">0</b></div>
-      <div class="dash-row"><span>Fps</span><b id="st-fps">0</b></div>
-      <div class="dash-row status"><span class="dot" id="st-dot"></span><b id="st-state">IDLE</b></div>
-    </div>
-    <div class="dash dash-controls panel" id="dash-controls">
-      <h2>Controls</h2>
-      <div class="dctl-toggle"><span>Bloom</span><button class="chip small" id="tg-bloom"><span class="dot"></span><span class="lbl">On</span></button></div>
-      <div class="dctl-toggle"><span>Stars</span><button class="chip small off" id="tg-stars"><span class="dot"></span><span class="lbl">Off</span></button></div>
-      <div class="dctl-toggle"><span>Labels</span><button class="chip small" id="tg-labels"><span class="dot"></span><span class="lbl">On</span></button></div>
-      <div class="dctl-toggle"><span>Zoom to node</span><button class="chip small" id="tg-zoom"><span class="dot"></span><span class="lbl">On</span></button></div>
-      <label class="dctl-slider"><span class="lbl"><span>Opacity</span><b id="v-opacity">0.85</b></span>
-        <input type="range" id="sl-opacity" min="0" max="1" step="0.01" value="0.85" /></label>
-      <label class="dctl-slider"><span class="lbl"><span>Upsweep</span><b id="v-upsweep">2.0x</b></span>
-        <input type="range" id="sl-upsweep" min="0" max="4" step="0.1" value="2.0" /></label>
-      <label class="dctl-slider"><span class="lbl"><span>Node size</span><b id="v-nodesize">1.4x</b></span>
-        <input type="range" id="sl-nodesize" min="0.5" max="3" step="0.1" value="1.4" /></label>
-      <label class="dctl-slider"><span class="lbl"><span>Aggressive pull</span><b id="v-pull">0.40</b></span>
-        <input type="range" id="sl-pull" min="0" max="1" step="0.01" value="0.4" /></label>
-    </div>
-    <div class="dash dash-keys panel" id="dash-keys">
-      <h2>Hotkeys</h2>
-      <div class="key-row"><kbd>/</kbd><span>Focus input</span></div>
-      <div class="key-row"><kbd>Enter</kbd><span>Send</span></div>
-      <div class="key-row"><kbd>Esc</kbd><span>Stop Jarvis</span></div>
-      <div class="key-row"><kbd>Click orb</kbd><span>Stop Jarvis</span></div>
-    </div>
 
     <div class="app">
       <div class="topbar">
@@ -283,10 +210,7 @@
     </div>
 
     <script>
-      // Holographic core: a rotating sphere of graph nodes (fixed relative
-      // positions + precomputed nearest-neighbour edges, like a node-graph
-      // visualizer), reactive to Jarvis's conversation state, plus a small
-      // live stats/controls/hotkeys HUD wired to the sphere's rendering.
+      // Holographic core: rotating rings + a state-reactive projected waveform.
       (function () {
         const canvas = document.getElementById('holo');
         const ctx = canvas.getContext('2d');
@@ -297,76 +221,16 @@
           H = canvas.height = innerHeight * devicePixelRatio;
           canvas.style.width = innerWidth + 'px';
           canvas.style.height = innerHeight + 'px';
-          cx = W * 0.5; cy = H * 0.48; R = Math.min(W, H) * 0.19;
+          cx = W * 0.42; cy = H * 0.44; R = Math.min(W, H) * 0.17;
         }
         addEventListener('resize', resize); resize();
 
-        // --- live-tunable render config, driven by the Controls panel ---
-        const cfg = { bloom: true, stars: false, labels: true, zoom: true, opacity: 0.85, upsweep: 2.0, nodeSize: 1.4, pull: 0.4 };
-
-        function wireToggle(id, key, onLabel, offLabel) {
-          const btn = document.getElementById(id);
-          const setUi = () => {
-            btn.classList.toggle('off', !cfg[key]);
-            btn.querySelector('.lbl').textContent = cfg[key] ? onLabel : offLabel;
-          };
-          btn.addEventListener('click', () => { cfg[key] = !cfg[key]; setUi(); });
-          setUi();
-        }
-        wireToggle('tg-bloom', 'bloom', 'On', 'Off');
-        wireToggle('tg-stars', 'stars', 'On', 'Off');
-        wireToggle('tg-labels', 'labels', 'On', 'Off');
-        wireToggle('tg-zoom', 'zoom', 'On', 'Off');
-
-        function wireSlider(id, valId, key, fmt) {
-          const el = document.getElementById(id);
-          const out = document.getElementById(valId);
-          el.addEventListener('input', () => {
-            cfg[key] = Number(el.value);
-            out.textContent = fmt(cfg[key]);
-          });
-        }
-        wireSlider('sl-opacity', 'v-opacity', 'opacity', (v) => v.toFixed(2));
-        wireSlider('sl-upsweep', 'v-upsweep', 'upsweep', (v) => v.toFixed(1) + 'x');
-        wireSlider('sl-nodesize', 'v-nodesize', 'nodeSize', (v) => v.toFixed(1) + 'x');
-        wireSlider('sl-pull', 'v-pull', 'pull', (v) => v.toFixed(2));
-
-        // Hotkeys: work the dashboard describes.
-        const utterInput = document.getElementById('utterance');
-        const stopBtn = document.getElementById('stop');
-        document.addEventListener('keydown', (e) => {
-          if (e.key === '/' && document.activeElement !== utterInput) {
-            e.preventDefault();
-            utterInput.focus();
-          } else if (e.key === 'Escape') {
-            stopBtn.click();
-          }
-        });
-
-        // --- the AI core: a glowing orb with two eyes --------------------------
-        // A dark sphere with two white eyes, wrapped by luminous red/white light
-        // trails that swirl around it in 3D (front trails drawn over the sphere,
-        // back trails behind it). The eyes blink and react to Jarvis's state; the
-        // swirl brightens and spins up while speaking.
-        let nextBlink = 1.5 + Math.random() * 3;
-        let blinkStart = -1;
-        let ringRot = 0;
-        const SAMPLES = 90;
-        const trails = [
-          { tilt: 1.15, speed: 1.00, off: 0.0, rad: 1.34, hot: 0.9 },
-          { tilt: 1.30, speed: -0.72, off: 2.1, rad: 1.20, hot: 1.3 },
-          { tilt: 1.02, speed: 1.35, off: 4.0, rad: 1.48, hot: 0.7 },
-        ];
-        // Flavour telemetry for the stats HUD (swirl sample points + segments).
-        const GEO = { nodes: SAMPLES * trails.length, lines: SAMPLES * trails.length - trails.length };
-
-        // Rising "upsweep" particle stream near the base of the sphere.
-        const stream = Array.from({ length: 50 }, () => ({
-          a: Math.random() * Math.PI * 2, r: 0.4 + Math.random() * 1.4,
+        const particles = Array.from({ length: 60 }, () => ({
+          a: Math.random() * Math.PI * 2, r: R * (0.4 + Math.random() * 1.4),
           s: 0.2 + Math.random() * 0.8, z: Math.random(),
         }));
 
-        // Galaxy backdrop (toggleable via the Stars control): starfield + drifting nebula.
+        // Galaxy backdrop: a deep starfield + drifting nebula clouds.
         const stars = Array.from({ length: 320 }, () => ({
           x: Math.random(), y: Math.random(),
           r: Math.random() * 1.5 + 0.25,
@@ -376,9 +240,9 @@
         }));
         const nebula = [
           { x: 0.22, y: 0.28, r: 0.55, c: [150, 24, 60] },
-          { x: 0.80, y: 0.22, r: 0.55, c: [90, 24, 120] },
+          { x: 0.80, y: 0.22, r: 0.55, c: [70, 24, 130] },
           { x: 0.68, y: 0.82, r: 0.6, c: [170, 30, 44] },
-          { x: 0.30, y: 0.78, r: 0.5, c: [70, 30, 120] },
+          { x: 0.30, y: 0.78, r: 0.5, c: [34, 46, 130] },
         ];
         let drift = 0;
 
@@ -392,185 +256,206 @@
           return state === 'thinking' ? [255, 154, 77] : [255, 43, 43];
         }
 
-        // Stat readouts + FPS (real, measured, not decorative).
-        const stNodes = document.getElementById('st-nodes');
-        const stVisible = document.getElementById('st-visible');
-        const stLines = document.getElementById('st-lines');
-        const stFps = document.getElementById('st-fps');
-        const stDot = document.getElementById('st-dot');
-        const stState = document.getElementById('st-state');
-        stNodes.textContent = GEO.nodes;
-        stLines.textContent = GEO.lines;
-        let lastFrameT = performance.now();
-        let fpsSmooth = 60;
-        let statFrame = 0;
-        let prevState = 'idle';
-        let zoomBoost = 0;
-
         let t = 0;
+        let rot = 0;
         function frame() {
-          const now = performance.now();
-          const dt = Math.max(1, now - lastFrameT);
-          lastFrameT = now;
-          fpsSmooth = fpsSmooth * 0.92 + (1000 / dt) * 0.08;
-
           t += 0.016;
           const state = stage.dataset.state || 'idle';
           const [cr, cg, cb] = color(state);
           const amp = stateAmp(state, t);
-          const rgba = (a) => `rgba(${cr},${cg},${cb},${a * cfg.opacity})`;
-
-          if (state === 'speaking' && prevState !== 'speaking' && cfg.zoom) zoomBoost = 1;
-          prevState = state;
-          zoomBoost *= 0.93;
-          const Rp = R * (1 + 0.03 * (amp - 0.3)) * (1 + (cfg.zoom ? zoomBoost : 0) * 0.2);
-
+          const rgba = (a) => `rgba(${cr},${cg},${cb},${a})`;
+          // Rotation speed reacts to state.
+          rot += 0.005 + (state === 'speaking' ? 0.02 * Math.abs(Math.sin(t * 8)) : state === 'thinking' ? 0.03 : 0.003);
           ctx.clearRect(0, 0, W, H);
 
-          // --- galaxy backdrop (optional) ---
-          if (cfg.stars) {
-            drift += 0.0004;
-            for (const n of nebula) {
-              const gx = (n.x + Math.sin(drift + n.y * 6) * 0.02) * W;
-              const gy = (n.y + Math.cos(drift + n.x * 6) * 0.02) * H;
-              const gr = n.r * Math.max(W, H) * 0.6;
-              const ng = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
-              ng.addColorStop(0, `rgba(${n.c[0]},${n.c[1]},${n.c[2]},0.16)`);
-              ng.addColorStop(1, 'rgba(0,0,0,0)');
-              ctx.fillStyle = ng;
-              ctx.fillRect(0, 0, W, H);
-            }
-            for (const s of stars) {
-              const a = 0.35 + 0.65 * Math.abs(Math.sin(t * s.sp + s.tw));
-              const g2 = 200 + Math.floor(s.warm * 55);
-              const b2 = 200 + Math.floor((1 - s.warm) * 45);
-              ctx.fillStyle = `rgba(255,${g2},${b2},${a})`;
-              ctx.beginPath();
-              ctx.arc(s.x * W, s.y * H, s.r * devicePixelRatio, 0, Math.PI * 2);
-              ctx.fill();
-            }
+          // --- galaxy backdrop ---
+          drift += 0.0004;
+          for (const n of nebula) {
+            const gx = (n.x + Math.sin(drift + n.y * 6) * 0.02) * W;
+            const gy = (n.y + Math.cos(drift + n.x * 6) * 0.02) * H;
+            const gr = n.r * Math.max(W, H) * 0.6;
+            const ng = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
+            ng.addColorStop(0, `rgba(${n.c[0]},${n.c[1]},${n.c[2]},0.16)`);
+            ng.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = ng;
+            ctx.fillRect(0, 0, W, H);
+          }
+          for (const s of stars) {
+            const a = 0.35 + 0.65 * Math.abs(Math.sin(t * s.sp + s.tw));
+            const g2 = 200 + Math.floor(s.warm * 55);
+            const b2 = 210 + Math.floor((1 - s.warm) * 45);
+            ctx.fillStyle = `rgba(255,${g2},${b2},${a})`;
+            ctx.beginPath();
+            ctx.arc(s.x * W, s.y * H, s.r * devicePixelRatio, 0, Math.PI * 2);
+            ctx.fill();
           }
 
           // base projection glow
-          const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 3.2);
-          g.addColorStop(0, rgba(0.08));
+          const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 3.4);
+          g.addColorStop(0, rgba(0.1));
           g.addColorStop(1, 'rgba(0,0,0,0)');
           ctx.fillStyle = g;
           ctx.fillRect(0, 0, W, H);
 
           ctx.save();
           ctx.translate(cx, cy);
+          ctx.lineCap = 'round';
+          const Rp = R * (1 + 0.03 * (amp - 0.3)); // subtle breathing
 
-          // --- blink + state dynamics ---
-          if (blinkStart < 0 && t > nextBlink) blinkStart = t;
-          let eyeOpen = 1;
-          if (blinkStart >= 0) {
-            const p = (t - blinkStart) / 0.13;
-            if (p >= 1) { blinkStart = -1; nextBlink = t + 1.6 + Math.random() * 3.5; }
-            else eyeOpen = Math.abs(1 - 2 * p); // 1 → 0 → 1
-          }
-          const pulse = state === 'speaking' ? (0.65 + 0.5 * Math.abs(Math.sin(t * 12)))
-            : state === 'listening' ? 0.55 : 0.36;
-          const spin = 0.5 + cfg.pull * 1.4 + (state === 'speaking' ? 1.6 * pulse : state === 'thinking' ? 1.3 : 0.3);
-          ringRot += 0.01 * spin;
-          const Rc = Rp * 0.92;               // sphere (core) radius
-          const visible = GEO.nodes;
-          const white = (a) => `rgba(255,236,236,${Math.min(1, a) * cfg.opacity})`;
-
-          // a point on a trail's tilted 3D orbit → screen x,y + depth z (-1..1)
-          function orbit(tr, ang) {
-            const py = Math.sin(ang);
-            return { x: Math.cos(ang) * tr.rad * Rc, y: py * Math.cos(tr.tilt) * tr.rad * Rc, z: py * Math.sin(tr.tilt) };
-          }
-          // draw the segments of a trail on one side of the sphere (front / back)
-          function drawTrail(tr, front) {
-            const head = ringRot * tr.speed + tr.off;
-            ctx.lineCap = 'round';
-            for (let i = 0; i < SAMPLES; i++) {
-              const a1 = (i / SAMPLES) * Math.PI * 2, a2 = ((i + 1) / SAMPLES) * Math.PI * 2;
-              const p = orbit(tr, a1), q = orbit(tr, a2);
-              if (((p.z + q.z) / 2 >= 0) !== front) continue;
-              const d = (((a1 - head) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-              const bri = Math.pow(1 - d / (Math.PI * 2), tr.hot * 3) * pulse * 1.5;
-              if (bri < 0.02) continue;
-              const depth = 0.55 + 0.45 * ((p.z + 1) / 2);
-              const mix = Math.min(1, bri);
-              ctx.strokeStyle = `rgba(255,${Math.round(70 + 166 * mix)},${Math.round(70 + 150 * mix)},${Math.min(1, bri) * depth * cfg.opacity})`;
-              ctx.lineWidth = (1 + 5 * bri) * depth * devicePixelRatio;
-              ctx.shadowBlur = cfg.bloom ? 14 * bri * devicePixelRatio : 0;
-              ctx.shadowColor = rgba(0.9);
-              ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
-            }
-            ctx.shadowBlur = 0;
-          }
-
-          // 1) back half of every swirl (behind the sphere)
-          for (const tr of trails) drawTrail(tr, false);
-
-          // 2) the dark sphere
-          const core = ctx.createRadialGradient(-Rc * 0.25, -Rc * 0.3, Rc * 0.1, 0, 0, Rc);
-          core.addColorStop(0, 'rgba(40,10,20,1)');
-          core.addColorStop(0.55, 'rgba(14,4,8,1)');
-          core.addColorStop(1, 'rgba(3,1,2,1)');
-          ctx.fillStyle = core;
-          ctx.beginPath(); ctx.arc(0, 0, Rc, 0, Math.PI * 2); ctx.fill();
-          ctx.strokeStyle = rgba(0.18); ctx.lineWidth = 1.5 * devicePixelRatio;
-          ctx.beginPath(); ctx.arc(0, 0, Rc * 0.82, 0, Math.PI * 2); ctx.stroke();
-          const topg = ctx.createRadialGradient(0, -Rc * 0.5, 0, 0, -Rc * 0.5, Rc * 0.95);
-          topg.addColorStop(0, rgba(0.14)); topg.addColorStop(1, 'rgba(0,0,0,0)');
-          ctx.fillStyle = topg;
-          ctx.beginPath(); ctx.arc(0, 0, Rc, 0, Math.PI * 2); ctx.fill();
-
-          // 3) the two eyes
-          const eyeR = Rc * 0.11, eyeDX = Rc * 0.26;
-          const bob = state === 'speaking' ? Math.sin(t * 9) * Rc * 0.02 : 0;
-          for (const sx of [-eyeDX, eyeDX]) {
-            ctx.save();
-            ctx.shadowBlur = cfg.bloom ? 18 * devicePixelRatio : 0;
-            ctx.shadowColor = white(0.9);
-            ctx.fillStyle = white(0.98);
+          // emitter base + projection beams (the hologram is "projected" from below)
+          const baseY = Rp * 1.95;
+          ctx.save();
+          for (let b = -1; b <= 1; b += 2) {
+            const grd = ctx.createLinearGradient(0, baseY, b * Rp, 0);
+            grd.addColorStop(0, rgba(0.32));
+            grd.addColorStop(1, rgba(0));
+            ctx.strokeStyle = grd;
+            ctx.lineWidth = 1.4 * devicePixelRatio;
             ctx.beginPath();
-            ctx.ellipse(sx, bob, eyeR, eyeR * (0.15 + 0.85 * eyeOpen), 0, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
+            ctx.moveTo(0, baseY);
+            ctx.lineTo(b * Rp, 0);
+            ctx.stroke();
+          }
+          ctx.fillStyle = rgba(0.5);
+          ctx.shadowBlur = 22; ctx.shadowColor = rgba(1);
+          ctx.beginPath();
+          ctx.ellipse(0, baseY, Rp * 0.55, Rp * 0.12, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+
+          ctx.shadowBlur = 14; ctx.shadowColor = rgba(0.9);
+          ctx.lineWidth = 1.2 * devicePixelRatio;
+
+          // sphere silhouette
+          ctx.strokeStyle = rgba(0.45);
+          ctx.beginPath();
+          ctx.arc(0, 0, Rp, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // latitude rings (perspective-flattened)
+          for (let lat = -60; lat <= 60; lat += 30) {
+            const la = (lat * Math.PI) / 180;
+            const ry = Rp * Math.cos(la);
+            const yy = Rp * Math.sin(la) * 0.95;
+            ctx.strokeStyle = rgba(lat === 0 ? 0.7 : 0.38);
+            ctx.beginPath();
+            ctx.ellipse(0, yy, ry, ry * 0.28, 0, 0, Math.PI * 2);
+            ctx.stroke();
           }
 
-          // 4) front half of every swirl (over the sphere)
-          for (const tr of trails) drawTrail(tr, true);
-
-          // subsystem labels floating beside the orb
-          if (cfg.labels) {
-            ctx.font = `${10 * devicePixelRatio}px ${getComputedStyle(document.body).fontFamily}`;
-            ctx.textBaseline = 'middle';
-            const tags = [['BRAIN', -0.2 * Rc, -1.75 * Rc], ['VOICE', 1.15 * Rc, 0.2 * Rc], ['MEMORY', -1.95 * Rc, -0.3 * Rc]];
-            for (const [txt, lx, ly] of tags) { ctx.fillStyle = rgba(0.5); ctx.fillText(txt, lx, ly); }
+          // longitude meridians (rotating → the globe spins)
+          const M = 6;
+          for (let k = 0; k < M; k++) {
+            const phase = rot + (k * Math.PI) / M;
+            const rx = Math.abs(Rp * Math.cos(phase));
+            ctx.strokeStyle = rgba(0.28 + 0.28 * Math.abs(Math.cos(phase)));
+            ctx.beginPath();
+            ctx.ellipse(0, 0, rx, Rp, 0, 0, Math.PI * 2);
+            ctx.stroke();
           }
 
-          // rising upsweep particle stream (base emitter)
-          const baseY = Rp * 1.15;
-          for (const p of stream) {
+          // --- futuristic HUD: energy pulses, reticle, gyroscope rings, nodes ---
+          // reactive energy pulses radiating from the core (stronger while speaking)
+          for (let i = 0; i < 3; i++) {
+            const ph = (t * (0.4 + (state === 'speaking' ? 0.9 : 0.15)) + i / 3) % 1;
+            ctx.strokeStyle = rgba((1 - ph) * (state === 'speaking' ? 0.5 : 0.2));
+            ctx.lineWidth = 1.2 * devicePixelRatio;
+            ctx.beginPath(); ctx.arc(0, 0, Rp * (0.15 + ph), 0, Math.PI * 2); ctx.stroke();
+          }
+
+          // outer reticle: base ring + degree ticks + rotating corner brackets
+          const Rr = Rp * 1.16;
+          ctx.lineWidth = 1 * devicePixelRatio;
+          ctx.strokeStyle = rgba(0.22);
+          ctx.beginPath(); ctx.arc(0, 0, Rr, 0, Math.PI * 2); ctx.stroke();
+          for (let i = 0; i < 72; i++) {
+            const a = (i / 72) * Math.PI * 2 + rot * 0.3;
+            const major = i % 6 === 0;
+            const r1 = Rr - (major ? 11 : 5) * devicePixelRatio;
+            ctx.strokeStyle = rgba(major ? 0.55 : 0.22);
+            ctx.lineWidth = (major ? 1.5 : 0.8) * devicePixelRatio;
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
+            ctx.lineTo(Math.cos(a) * Rr, Math.sin(a) * Rr);
+            ctx.stroke();
+          }
+          ctx.strokeStyle = rgba(0.75); ctx.lineWidth = 2.2 * devicePixelRatio;
+          ctx.shadowBlur = 10; ctx.shadowColor = rgba(0.9);
+          for (let c = 0; c < 4; c++) {
+            const a0 = -rot * 0.5 + (c * Math.PI) / 2;
+            ctx.beginPath(); ctx.arc(0, 0, Rr + 6 * devicePixelRatio, a0 - 0.13, a0 + 0.13); ctx.stroke();
+          }
+          ctx.shadowBlur = 0;
+
+          // gyroscope rings: three tilted rings tumbling at different rates, each
+          // with a bright data node riding along it (depth-shaded for a 3D feel)
+          const drawGyro = (tiltX, spin, rad, dashed) => {
+            const N = 96, Rg = Rp * rad;
+            const cA = Math.cos(tiltX), sA = Math.sin(tiltX);
+            const cB = Math.cos(spin), sB = Math.sin(spin);
+            let prev = null;
+            for (let i = 0; i <= N; i++) {
+              const a = (i / N) * Math.PI * 2;
+              const x = Math.cos(a) * Rg, y = Math.sin(a) * Rg;
+              const y1 = y * cA, z1 = y * sA;
+              const x2 = x * cB + z1 * sB, z2 = -x * sB + z1 * cB;
+              const depth = (z2 / Rg + 1) / 2;
+              if (prev && !(dashed && i % 3 === 0)) {
+                ctx.strokeStyle = rgba(0.1 + 0.42 * depth);
+                ctx.lineWidth = (0.7 + 1.3 * depth) * devicePixelRatio;
+                ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(x2, y1); ctx.stroke();
+              }
+              prev = { x: x2, y: y1 };
+            }
+            const na = rot * 2.2 + rad;
+            const x = Math.cos(na) * Rg, y = Math.sin(na) * Rg;
+            const y1 = y * cA, z1 = y * sA;
+            const x2 = x * cB + z1 * sB;
+            ctx.fillStyle = rgba(0.95); ctx.shadowBlur = 12; ctx.shadowColor = rgba(1);
+            ctx.beginPath(); ctx.arc(x2, y1, 2.6 * devicePixelRatio, 0, Math.PI * 2); ctx.fill();
+            ctx.shadowBlur = 0;
+          };
+          drawGyro(1.16, rot * 0.9, 1.30, true);
+          drawGyro(0.55, -rot * 0.7 + 1, 1.16, false);
+          drawGyro(1.45, rot * 1.2 + 2, 1.44, true);
+
+          // vertical scan sweep across the sphere
+          const sy = (((t * 0.5) % 1) * 2 - 1) * Rp;
+          const halfw = Math.sqrt(Math.max(0, Rp * Rp - sy * sy));
+          ctx.strokeStyle = rgba(0.85);
+          ctx.lineWidth = 2 * devicePixelRatio;
+          ctx.shadowBlur = 18;
+          ctx.beginPath();
+          ctx.moveTo(-halfw, sy);
+          ctx.lineTo(halfw, sy);
+          ctx.stroke();
+
+          // soft inner glow (no solid orb — keep it see-through)
+          const core = ctx.createRadialGradient(0, 0, 0, 0, 0, Rp * 0.75);
+          core.addColorStop(0, rgba(0.22 + 0.16 * amp));
+          core.addColorStop(1, rgba(0));
+          ctx.fillStyle = core;
+          ctx.shadowBlur = 0;
+          ctx.beginPath();
+          ctx.arc(0, 0, Rp * 0.75, 0, Math.PI * 2);
+          ctx.fill();
+
+          // rising hologram particles
+          ctx.shadowBlur = 8;
+          for (const p of particles) {
             p.a += 0.002 * p.s;
-            p.z += 0.003 * p.s * cfg.upsweep;
+            p.z += 0.003 * p.s;
             if (p.z > 1) p.z = 0;
             const rr = p.r * (0.7 + p.z * 0.6);
-            const x = Math.cos(p.a) * rr * Rp * 0.5;
-            const y = baseY - p.z * Rp * 1.4;
-            ctx.fillStyle = rgba((1 - p.z) * 0.45);
+            const x = Math.cos(p.a) * rr;
+            const y = Math.sin(p.a) * rr * 0.4 + Rp * 0.7 - p.z * Rp * 1.5;
+            ctx.fillStyle = rgba((1 - p.z) * 0.5);
             ctx.beginPath();
-            ctx.arc(x, y, 1.2 * devicePixelRatio, 0, Math.PI * 2);
+            ctx.arc(x, y, 1.3 * devicePixelRatio, 0, Math.PI * 2);
             ctx.fill();
           }
 
           ctx.restore();
-
-          // throttled stat text updates (cheap, but no need every single frame)
-          if (++statFrame % 12 === 0) {
-            stVisible.textContent = visible;
-            stFps.textContent = Math.round(fpsSmooth);
-            stState.textContent = state.toUpperCase();
-            stDot.classList.toggle('think', state === 'thinking');
-          }
-
           requestAnimationFrame(frame);
         }
         frame();
