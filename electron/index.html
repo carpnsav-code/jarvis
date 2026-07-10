@@ -6,16 +6,16 @@
     <title>J.A.R.V.I.S.</title>
     <style>
       :root {
-        /* Red + black theme (var names kept as --cyan* to avoid churn). */
-        --cyan: #ff2b2b;
-        --cyan-bright: #ff8a8a;
-        --cyan-dim: rgba(255, 43, 43, 0.5);
-        --amber: #ff9a4d;
-        --bg: #0a0304;
-        --panel: rgba(30, 6, 8, 0.45);
-        --panel-brd: rgba(255, 43, 43, 0.30);
-        --text: #ffd6d6;
-        --text-dim: #a06a6a;
+        /* Black + green "node graph" theme (var names kept as --cyan* to avoid churn). */
+        --cyan: #35ff77;
+        --cyan-bright: #c3ffd9;
+        --cyan-dim: rgba(53, 255, 119, 0.5);
+        --amber: #ffcf40;
+        --bg: #020603;
+        --panel: rgba(4, 26, 14, 0.45);
+        --panel-brd: rgba(53, 255, 119, 0.30);
+        --text: #d9ffe4;
+        --text-dim: #5c8a6c;
         --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
         --font: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
       }
@@ -26,7 +26,7 @@
         color: var(--text);
         background: var(--bg);
         overflow: hidden;
-        text-shadow: 0 0 12px rgba(255, 43, 43, 0.25);
+        text-shadow: 0 0 12px rgba(53, 255, 119, 0.22);
       }
 
       /* holographic projection canvas */
@@ -36,7 +36,7 @@
       .fx {
         position: fixed; inset: 0; z-index: 2; pointer-events: none;
         background:
-          repeating-linear-gradient(0deg, rgba(0,0,0,0) 0 2px, rgba(30, 0, 0, 0.28) 2px 3px),
+          repeating-linear-gradient(0deg, rgba(0,0,0,0) 0 2px, rgba(0, 20, 8, 0.28) 2px 3px),
           radial-gradient(120% 100% at 50% 40%, transparent 55%, rgba(0,0,0,0.75) 100%);
         mix-blend-mode: multiply;
         animation: flicker 6s infinite;
@@ -73,7 +73,7 @@
       }
       .chip:hover { color: var(--cyan-bright); border-color: var(--cyan); box-shadow: 0 0 16px var(--cyan-dim); }
       .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
-      .chip.off { color: #3a4a5a; } .chip.off .dot { background: #3a4a5a; box-shadow: none; }
+      .chip.off { color: #2f4a3a; } .chip.off .dot { background: #2f4a3a; box-shadow: none; }
 
       /* main */
       .main { flex: 1; display: grid; grid-template-columns: 1fr 340px; gap: 26px; min-height: 0; margin-top: 10px; }
@@ -109,26 +109,26 @@
       .bar { display: flex; gap: 12px; align-items: center; margin-top: 16px; }
       .bar input {
         flex: 1; padding: 15px 18px; font-size: 15px; color: var(--cyan-bright); font-family: var(--font);
-        background: rgba(4, 14, 26, 0.6); border: 1px solid var(--panel-brd); border-radius: 5px; outline: none;
+        background: rgba(4, 20, 12, 0.6); border: 1px solid var(--panel-brd); border-radius: 5px; outline: none;
         transition: border-color .2s, box-shadow .2s;
       }
-      .bar input::placeholder { color: #3f5a70; }
+      .bar input::placeholder { color: #3a6b4e; }
       .bar input:focus { border-color: var(--cyan); box-shadow: 0 0 20px var(--cyan-dim); }
       .bar.listening input { border-color: var(--cyan); animation: pulseBar 1.5s infinite; }
       @keyframes pulseBar {
-        0% { box-shadow: 0 0 0 0 rgba(255,43,43,.45); } 70% { box-shadow: 0 0 0 14px rgba(255,43,43,0); }
-        100% { box-shadow: 0 0 0 0 rgba(255,43,43,0); }
+        0% { box-shadow: 0 0 0 0 rgba(53,255,119,.45); } 70% { box-shadow: 0 0 0 14px rgba(53,255,119,0); }
+        100% { box-shadow: 0 0 0 0 rgba(53,255,119,0); }
       }
       .btn { padding: 14px 18px; font-size: 14px; font-family: var(--mono); letter-spacing: 1px; color: var(--cyan);
         background: var(--panel); border: 1px solid var(--cyan-dim); border-radius: 5px; cursor: pointer;
         text-transform: uppercase; transition: color .2s, box-shadow .2s, background .2s; }
       .btn:hover { color: var(--bg); background: var(--cyan); box-shadow: 0 0 22px var(--cyan); }
-      .btn.stop { background: rgba(255,43,43,0.18); border-color: var(--cyan); color: var(--cyan-bright); font-weight: 700; }
+      .btn.stop { background: rgba(53,255,119,0.18); border-color: var(--cyan); color: var(--cyan-bright); font-weight: 700; }
       .stage { cursor: pointer; }
       /* Activation overlay — the single tap browsers require to unlock mic+audio */
       #activate {
         position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
-        background: rgba(4, 1, 2, 0.82); backdrop-filter: blur(6px);
+        background: rgba(1, 4, 2, 0.82); backdrop-filter: blur(6px);
         cursor: pointer; transition: opacity .5s ease;
       }
       #activate.hide { opacity: 0; pointer-events: none; }
@@ -137,13 +137,54 @@
         display: grid; place-items: center; text-align: center;
         border: 2px solid var(--cyan); color: var(--cyan-bright);
         font: 13px/1.6 var(--mono); letter-spacing: 3px; text-transform: uppercase;
-        box-shadow: 0 0 44px var(--cyan-dim), inset 0 0 30px rgba(255,43,43,0.15);
+        box-shadow: 0 0 44px var(--cyan-dim), inset 0 0 30px rgba(53,255,119,0.15);
         animation: actPulse 2s ease-in-out infinite;
       }
       @keyframes actPulse {
         0%,100% { transform: scale(1); box-shadow: 0 0 34px var(--cyan-dim); }
         50% { transform: scale(1.05); box-shadow: 0 0 60px var(--cyan); }
       }
+
+      /* --- Data-dashboard overlays (stats / controls / hotkeys), left edge --- */
+      .dash {
+        position: fixed; z-index: 6; left: 34px; width: 202px;
+        font: 11px/1.5 var(--mono); pointer-events: auto;
+      }
+      .dash h2 { margin: 0 0 10px; font: 10px/1 var(--mono); letter-spacing: 3px; text-transform: uppercase; color: var(--cyan); }
+      .dash-stats { top: 108px; }
+      .dash-row { display: flex; align-items: center; justify-content: space-between; padding: 3px 0;
+        color: var(--text-dim); text-transform: uppercase; letter-spacing: 1.5px; font-size: 10px; }
+      .dash-row b { color: var(--cyan-bright); font-weight: 600; font-size: 11px; }
+      .dash-row.status { margin-top: 8px; padding-top: 9px; border-top: 1px solid var(--panel-brd); gap: 8px; justify-content: flex-start; }
+      .dash-row.status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); transition: background .2s, box-shadow .2s; }
+      .dash-row.status .dot.think { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+      .dash-row.status b { font-size: 10px; letter-spacing: 2px; }
+
+      .dash-controls { top: 264px; }
+      .dctl-toggle { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+      .dctl-toggle span { color: var(--text-dim); text-transform: uppercase; letter-spacing: 1.5px; font-size: 10px; }
+      .chip.small { padding: 5px 9px; font-size: 9px; gap: 6px; }
+      .dctl-slider { display: block; margin-bottom: 11px; }
+      .dctl-slider .lbl { display: flex; justify-content: space-between; color: var(--text-dim); text-transform: uppercase;
+        letter-spacing: 1.5px; font-size: 10px; margin-bottom: 5px; }
+      .dctl-slider .lbl b { color: var(--cyan-bright); font-weight: 600; }
+      .dctl-slider input[type="range"] {
+        -webkit-appearance: none; appearance: none; width: 100%; height: 3px;
+        background: var(--panel-brd); border-radius: 2px; outline: none; display: block;
+      }
+      .dctl-slider input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none; width: 11px; height: 11px; border-radius: 50%;
+        background: var(--cyan); box-shadow: 0 0 8px var(--cyan); cursor: pointer;
+      }
+      .dctl-slider input[type="range"]::-moz-range-thumb {
+        width: 11px; height: 11px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan);
+        border: none; cursor: pointer;
+      }
+
+      .dash-keys { bottom: 96px; }
+      .key-row { display: flex; gap: 9px; align-items: center; padding: 3px 0; color: var(--text-dim); font-size: 10px; }
+      kbd { font: 10px var(--mono); background: var(--panel); border: 1px solid var(--panel-brd); border-radius: 3px;
+        padding: 2px 6px; color: var(--cyan-bright); white-space: nowrap; }
 
       ::-webkit-scrollbar { width: 6px; }
       ::-webkit-scrollbar-thumb { background: var(--cyan-dim); border-radius: 6px; }
@@ -159,6 +200,7 @@
         .side .panel:first-child { display: none; } /* hide the video panel on phones */
         .side .panel:last-child { max-height: 30vh; }
         .bar input { font-size: 16px; } /* 16px avoids iOS zoom-on-focus */
+        .dash { display: none; } /* the graph HUD needs room the phone doesn't have */
       }
     </style>
   </head>
@@ -167,6 +209,37 @@
     <div id="activate"><div class="ring-btn">Tap to<br />activate<br />JARVIS</div></div>
     <div class="fx"></div>
     <div class="hud"><span class="bl"></span><span class="br"></span></div>
+
+    <!-- Data-dashboard HUD: real stats + live controls over the node sphere -->
+    <div class="dash dash-stats panel" id="dash-stats">
+      <div class="dash-row"><span>Nodes</span><b id="st-nodes">0</b></div>
+      <div class="dash-row"><span>Visible</span><b id="st-visible">0</b></div>
+      <div class="dash-row"><span>Lines</span><b id="st-lines">0</b></div>
+      <div class="dash-row"><span>Fps</span><b id="st-fps">0</b></div>
+      <div class="dash-row status"><span class="dot" id="st-dot"></span><b id="st-state">IDLE</b></div>
+    </div>
+    <div class="dash dash-controls panel" id="dash-controls">
+      <h2>Controls</h2>
+      <div class="dctl-toggle"><span>Bloom</span><button class="chip small" id="tg-bloom"><span class="dot"></span><span class="lbl">On</span></button></div>
+      <div class="dctl-toggle"><span>Stars</span><button class="chip small off" id="tg-stars"><span class="dot"></span><span class="lbl">Off</span></button></div>
+      <div class="dctl-toggle"><span>Labels</span><button class="chip small" id="tg-labels"><span class="dot"></span><span class="lbl">On</span></button></div>
+      <div class="dctl-toggle"><span>Zoom to node</span><button class="chip small" id="tg-zoom"><span class="dot"></span><span class="lbl">On</span></button></div>
+      <label class="dctl-slider"><span class="lbl"><span>Opacity</span><b id="v-opacity">0.85</b></span>
+        <input type="range" id="sl-opacity" min="0" max="1" step="0.01" value="0.85" /></label>
+      <label class="dctl-slider"><span class="lbl"><span>Upsweep</span><b id="v-upsweep">2.0x</b></span>
+        <input type="range" id="sl-upsweep" min="0" max="4" step="0.1" value="2.0" /></label>
+      <label class="dctl-slider"><span class="lbl"><span>Node size</span><b id="v-nodesize">1.4x</b></span>
+        <input type="range" id="sl-nodesize" min="0.5" max="3" step="0.1" value="1.4" /></label>
+      <label class="dctl-slider"><span class="lbl"><span>Aggressive pull</span><b id="v-pull">0.40</b></span>
+        <input type="range" id="sl-pull" min="0" max="1" step="0.01" value="0.4" /></label>
+    </div>
+    <div class="dash dash-keys panel" id="dash-keys">
+      <h2>Hotkeys</h2>
+      <div class="key-row"><kbd>/</kbd><span>Focus input</span></div>
+      <div class="key-row"><kbd>Enter</kbd><span>Send</span></div>
+      <div class="key-row"><kbd>Esc</kbd><span>Stop Jarvis</span></div>
+      <div class="key-row"><kbd>Click orb</kbd><span>Stop Jarvis</span></div>
+    </div>
 
     <div class="app">
       <div class="topbar">
@@ -210,7 +283,10 @@
     </div>
 
     <script>
-      // Holographic core: rotating rings + a state-reactive projected waveform.
+      // Holographic core: a rotating sphere of graph nodes (fixed relative
+      // positions + precomputed nearest-neighbour edges, like a node-graph
+      // visualizer), reactive to Jarvis's conversation state, plus a small
+      // live stats/controls/hotkeys HUD wired to the sphere's rendering.
       (function () {
         const canvas = document.getElementById('holo');
         const ctx = canvas.getContext('2d');
@@ -221,16 +297,96 @@
           H = canvas.height = innerHeight * devicePixelRatio;
           canvas.style.width = innerWidth + 'px';
           canvas.style.height = innerHeight + 'px';
-          cx = W * 0.42; cy = H * 0.44; R = Math.min(W, H) * 0.17;
+          cx = W * 0.5; cy = H * 0.48; R = Math.min(W, H) * 0.19;
         }
         addEventListener('resize', resize); resize();
 
-        const particles = Array.from({ length: 60 }, () => ({
-          a: Math.random() * Math.PI * 2, r: R * (0.4 + Math.random() * 1.4),
+        // --- live-tunable render config, driven by the Controls panel ---
+        const cfg = { bloom: true, stars: false, labels: true, zoom: true, opacity: 0.85, upsweep: 2.0, nodeSize: 1.4, pull: 0.4 };
+
+        function wireToggle(id, key, onLabel, offLabel) {
+          const btn = document.getElementById(id);
+          const setUi = () => {
+            btn.classList.toggle('off', !cfg[key]);
+            btn.querySelector('.lbl').textContent = cfg[key] ? onLabel : offLabel;
+          };
+          btn.addEventListener('click', () => { cfg[key] = !cfg[key]; setUi(); });
+          setUi();
+        }
+        wireToggle('tg-bloom', 'bloom', 'On', 'Off');
+        wireToggle('tg-stars', 'stars', 'On', 'Off');
+        wireToggle('tg-labels', 'labels', 'On', 'Off');
+        wireToggle('tg-zoom', 'zoom', 'On', 'Off');
+
+        function wireSlider(id, valId, key, fmt) {
+          const el = document.getElementById(id);
+          const out = document.getElementById(valId);
+          el.addEventListener('input', () => {
+            cfg[key] = Number(el.value);
+            out.textContent = fmt(cfg[key]);
+          });
+        }
+        wireSlider('sl-opacity', 'v-opacity', 'opacity', (v) => v.toFixed(2));
+        wireSlider('sl-upsweep', 'v-upsweep', 'upsweep', (v) => v.toFixed(1) + 'x');
+        wireSlider('sl-nodesize', 'v-nodesize', 'nodeSize', (v) => v.toFixed(1) + 'x');
+        wireSlider('sl-pull', 'v-pull', 'pull', (v) => v.toFixed(2));
+
+        // Hotkeys: work the dashboard describes.
+        const utterInput = document.getElementById('utterance');
+        const stopBtn = document.getElementById('stop');
+        document.addEventListener('keydown', (e) => {
+          if (e.key === '/' && document.activeElement !== utterInput) {
+            e.preventDefault();
+            utterInput.focus();
+          } else if (e.key === 'Escape') {
+            stopBtn.click();
+          }
+        });
+
+        // --- the node sphere: fixed 3D layout + precomputed edges ---------------
+        const NODE_COUNT = 640;
+        const nodes = [];
+        const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+        for (let i = 0; i < NODE_COUNT; i++) {
+          const y = 1 - (i / (NODE_COUNT - 1)) * 2;
+          const rAtY = Math.sqrt(Math.max(0, 1 - y * y));
+          const theta = GOLDEN * i;
+          const jitter = 0.82 + Math.random() * 0.36;
+          nodes.push({ x: Math.cos(theta) * rAtY * jitter, y: y * jitter, z: Math.sin(theta) * rAtY * jitter });
+        }
+        // Nearest-neighbour edges, computed once — the cloud rotates as one
+        // rigid rotation, so relative distances (and thus the edge list) never
+        // change; no need to recompute per frame.
+        const edges = [];
+        {
+          const seen = new Set();
+          const K = 3;
+          for (let i = 0; i < nodes.length; i++) {
+            const dists = [];
+            for (let j = 0; j < nodes.length; j++) {
+              if (i === j) continue;
+              const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y, dz = nodes[i].z - nodes[j].z;
+              dists.push([dx * dx + dy * dy + dz * dz, j]);
+            }
+            dists.sort((a, b) => a[0] - b[0]);
+            for (let k = 0; k < K && k < dists.length; k++) {
+              const j = dists[k][1];
+              const key = i < j ? `${i}_${j}` : `${j}_${i}`;
+              if (!seen.has(key)) { seen.add(key); edges.push([i, j]); }
+            }
+          }
+        }
+        // A few "hub" nodes get subsystem labels, evenly spread around the sphere.
+        const HUB_LABELS = ['BRAIN', 'VOICE', 'MEMORY', 'SEARCH', 'GHL', 'SPOTIFY'];
+        const hubs = HUB_LABELS.map((label, k) => ({ idx: Math.floor((k / HUB_LABELS.length) * NODE_COUNT), label }));
+
+        // Rising "upsweep" particle stream near the base of the sphere.
+        const stream = Array.from({ length: 50 }, () => ({
+          a: Math.random() * Math.PI * 2, r: 0.4 + Math.random() * 1.4,
           s: 0.2 + Math.random() * 0.8, z: Math.random(),
         }));
 
-        // Galaxy backdrop: a deep starfield + drifting nebula clouds.
+        // Galaxy backdrop (toggleable via the Stars control): starfield + drifting nebula.
         const stars = Array.from({ length: 320 }, () => ({
           x: Math.random(), y: Math.random(),
           r: Math.random() * 1.5 + 0.25,
@@ -239,10 +395,10 @@
           warm: Math.random(),
         }));
         const nebula = [
-          { x: 0.22, y: 0.28, r: 0.55, c: [150, 24, 60] },
-          { x: 0.80, y: 0.22, r: 0.55, c: [70, 24, 130] },
-          { x: 0.68, y: 0.82, r: 0.6, c: [170, 30, 44] },
-          { x: 0.30, y: 0.78, r: 0.5, c: [34, 46, 130] },
+          { x: 0.22, y: 0.28, r: 0.55, c: [20, 140, 80] },
+          { x: 0.80, y: 0.22, r: 0.55, c: [16, 110, 120] },
+          { x: 0.68, y: 0.82, r: 0.6, c: [30, 160, 70] },
+          { x: 0.30, y: 0.78, r: 0.5, c: [18, 90, 60] },
         ];
         let drift = 0;
 
@@ -253,144 +409,162 @@
           return 0.32 + Math.sin(t * 1.4) * 0.14; // idle breathing
         }
         function color(state) {
-          return state === 'thinking' ? [255, 154, 77] : [255, 43, 43];
+          return state === 'thinking' ? [255, 207, 64] : [53, 255, 119];
         }
 
+        // Stat readouts + FPS (real, measured, not decorative).
+        const stNodes = document.getElementById('st-nodes');
+        const stVisible = document.getElementById('st-visible');
+        const stLines = document.getElementById('st-lines');
+        const stFps = document.getElementById('st-fps');
+        const stDot = document.getElementById('st-dot');
+        const stState = document.getElementById('st-state');
+        stNodes.textContent = NODE_COUNT;
+        stLines.textContent = edges.length;
+        let lastFrameT = performance.now();
+        let fpsSmooth = 60;
+        let statFrame = 0;
+        let prevState = 'idle';
+        let zoomBoost = 0;
+
         let t = 0;
-        let rot = 0;
+        let rotY = 0;
+        const tiltX = 0.32;
         function frame() {
+          const now = performance.now();
+          const dt = Math.max(1, now - lastFrameT);
+          lastFrameT = now;
+          fpsSmooth = fpsSmooth * 0.92 + (1000 / dt) * 0.08;
+
           t += 0.016;
           const state = stage.dataset.state || 'idle';
           const [cr, cg, cb] = color(state);
           const amp = stateAmp(state, t);
-          const rgba = (a) => `rgba(${cr},${cg},${cb},${a})`;
-          // Rotation speed reacts to state.
-          rot += 0.005 + (state === 'speaking' ? 0.02 * Math.abs(Math.sin(t * 8)) : state === 'thinking' ? 0.03 : 0.003);
+          const rgba = (a) => `rgba(${cr},${cg},${cb},${a * cfg.opacity})`;
+
+          if (state === 'speaking' && prevState !== 'speaking' && cfg.zoom) zoomBoost = 1;
+          prevState = state;
+          zoomBoost *= 0.93;
+          const Rp = R * (1 + 0.03 * (amp - 0.3)) * (1 + (cfg.zoom ? zoomBoost : 0) * 0.2);
+
+          rotY += (0.003 + cfg.pull * 0.02) + (state === 'speaking' ? 0.02 * Math.abs(Math.sin(t * 8)) : state === 'thinking' ? 0.025 : 0.002);
           ctx.clearRect(0, 0, W, H);
 
-          // --- galaxy backdrop ---
-          drift += 0.0004;
-          for (const n of nebula) {
-            const gx = (n.x + Math.sin(drift + n.y * 6) * 0.02) * W;
-            const gy = (n.y + Math.cos(drift + n.x * 6) * 0.02) * H;
-            const gr = n.r * Math.max(W, H) * 0.6;
-            const ng = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
-            ng.addColorStop(0, `rgba(${n.c[0]},${n.c[1]},${n.c[2]},0.16)`);
-            ng.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.fillStyle = ng;
-            ctx.fillRect(0, 0, W, H);
-          }
-          for (const s of stars) {
-            const a = 0.35 + 0.65 * Math.abs(Math.sin(t * s.sp + s.tw));
-            const g2 = 200 + Math.floor(s.warm * 55);
-            const b2 = 210 + Math.floor((1 - s.warm) * 45);
-            ctx.fillStyle = `rgba(255,${g2},${b2},${a})`;
-            ctx.beginPath();
-            ctx.arc(s.x * W, s.y * H, s.r * devicePixelRatio, 0, Math.PI * 2);
-            ctx.fill();
+          // --- galaxy backdrop (optional) ---
+          if (cfg.stars) {
+            drift += 0.0004;
+            for (const n of nebula) {
+              const gx = (n.x + Math.sin(drift + n.y * 6) * 0.02) * W;
+              const gy = (n.y + Math.cos(drift + n.x * 6) * 0.02) * H;
+              const gr = n.r * Math.max(W, H) * 0.6;
+              const ng = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
+              ng.addColorStop(0, `rgba(${n.c[0]},${n.c[1]},${n.c[2]},0.16)`);
+              ng.addColorStop(1, 'rgba(0,0,0,0)');
+              ctx.fillStyle = ng;
+              ctx.fillRect(0, 0, W, H);
+            }
+            for (const s of stars) {
+              const a = 0.35 + 0.65 * Math.abs(Math.sin(t * s.sp + s.tw));
+              const rr = 190 + Math.floor(s.warm * 60);
+              const gg = 255;
+              ctx.fillStyle = `rgba(${rr},${gg},${210 + Math.floor((1 - s.warm) * 45)},${a})`;
+              ctx.beginPath();
+              ctx.arc(s.x * W, s.y * H, s.r * devicePixelRatio, 0, Math.PI * 2);
+              ctx.fill();
+            }
           }
 
           // base projection glow
-          const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 3.4);
-          g.addColorStop(0, rgba(0.1));
+          const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 3.2);
+          g.addColorStop(0, rgba(0.08));
           g.addColorStop(1, 'rgba(0,0,0,0)');
           ctx.fillStyle = g;
           ctx.fillRect(0, 0, W, H);
 
           ctx.save();
           ctx.translate(cx, cy);
-          ctx.lineCap = 'round';
-          const Rp = R * (1 + 0.03 * (amp - 0.3)); // subtle breathing
 
-          // emitter base + projection beams (the hologram is "projected" from below)
-          const baseY = Rp * 1.95;
-          ctx.save();
-          for (let b = -1; b <= 1; b += 2) {
-            const grd = ctx.createLinearGradient(0, baseY, b * Rp, 0);
-            grd.addColorStop(0, rgba(0.32));
-            grd.addColorStop(1, rgba(0));
-            ctx.strokeStyle = grd;
-            ctx.lineWidth = 1.4 * devicePixelRatio;
-            ctx.beginPath();
-            ctx.moveTo(0, baseY);
-            ctx.lineTo(b * Rp, 0);
-            ctx.stroke();
+          // --- project every node through the rigid rotation ---
+          const cY = Math.cos(rotY), sY = Math.sin(rotY);
+          const cX = Math.cos(tiltX), sX = Math.sin(tiltX);
+          const focal = 2.4;
+          const proj = new Array(nodes.length);
+          let visible = 0;
+          for (let i = 0; i < nodes.length; i++) {
+            const n = nodes[i];
+            const x1 = n.x * cY + n.z * sY;
+            const z1 = -n.x * sY + n.z * cY;
+            const y2 = n.y * cX - z1 * sX;
+            const z2 = n.y * sX + z1 * cX;
+            const scale = focal / (focal + z2);
+            const depth = (1 - z2) / 2; // 0 (far) .. 1 (near)
+            if (z2 < 0.25) visible++;
+            proj[i] = { x: x1 * scale * Rp, y: y2 * scale * Rp, depth, scale };
           }
-          ctx.fillStyle = rgba(0.5);
-          ctx.shadowBlur = 22; ctx.shadowColor = rgba(1);
-          ctx.beginPath();
-          ctx.ellipse(0, baseY, Rp * 0.55, Rp * 0.12, 0, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.restore();
 
-          ctx.shadowBlur = 14; ctx.shadowColor = rgba(0.9);
-          ctx.lineWidth = 1.2 * devicePixelRatio;
-
-          // sphere silhouette
-          ctx.strokeStyle = rgba(0.45);
-          ctx.beginPath();
-          ctx.arc(0, 0, Rp, 0, Math.PI * 2);
-          ctx.stroke();
-
-          // latitude rings (perspective-flattened)
-          for (let lat = -60; lat <= 60; lat += 30) {
-            const la = (lat * Math.PI) / 180;
-            const ry = Rp * Math.cos(la);
-            const yy = Rp * Math.sin(la) * 0.95;
-            ctx.strokeStyle = rgba(lat === 0 ? 0.7 : 0.38);
+          // edges (graph lines)
+          ctx.lineWidth = 0.7 * devicePixelRatio;
+          for (const [a, b] of edges) {
+            const pa = proj[a], pb = proj[b];
+            const d = (pa.depth + pb.depth) / 2;
+            if (d < 0.25) continue; // skip far-side lines for clarity
+            ctx.strokeStyle = rgba(0.10 + 0.22 * d);
             ctx.beginPath();
-            ctx.ellipse(0, yy, ry, ry * 0.28, 0, 0, Math.PI * 2);
+            ctx.moveTo(pa.x, pa.y);
+            ctx.lineTo(pb.x, pb.y);
             ctx.stroke();
           }
 
-          // longitude meridians (rotating → the globe spins)
-          const M = 6;
-          for (let k = 0; k < M; k++) {
-            const phase = rot + (k * Math.PI) / M;
-            const rx = Math.abs(Rp * Math.cos(phase));
-            ctx.strokeStyle = rgba(0.28 + 0.28 * Math.abs(Math.cos(phase)));
+          // nodes
+          ctx.shadowBlur = cfg.bloom ? 9 * devicePixelRatio : 0;
+          ctx.shadowColor = rgba(0.9);
+          for (let i = 0; i < proj.length; i++) {
+            const p = proj[i];
+            const rr = cfg.nodeSize * (0.6 + p.depth * 1.1) * devicePixelRatio;
+            ctx.fillStyle = rgba(0.25 + p.depth * 0.65);
             ctx.beginPath();
-            ctx.ellipse(0, 0, rx, Rp, 0, 0, Math.PI * 2);
-            ctx.stroke();
+            ctx.arc(p.x, p.y, rr, 0, Math.PI * 2);
+            ctx.fill();
           }
-
-          // vertical scan sweep across the sphere
-          const sy = (((t * 0.5) % 1) * 2 - 1) * Rp;
-          const halfw = Math.sqrt(Math.max(0, Rp * Rp - sy * sy));
-          ctx.strokeStyle = rgba(0.85);
-          ctx.lineWidth = 2 * devicePixelRatio;
-          ctx.shadowBlur = 18;
-          ctx.beginPath();
-          ctx.moveTo(-halfw, sy);
-          ctx.lineTo(halfw, sy);
-          ctx.stroke();
-
-          // soft inner glow (no solid orb — keep it see-through)
-          const core = ctx.createRadialGradient(0, 0, 0, 0, 0, Rp * 0.75);
-          core.addColorStop(0, rgba(0.22 + 0.16 * amp));
-          core.addColorStop(1, rgba(0));
-          ctx.fillStyle = core;
           ctx.shadowBlur = 0;
-          ctx.beginPath();
-          ctx.arc(0, 0, Rp * 0.75, 0, Math.PI * 2);
-          ctx.fill();
 
-          // rising hologram particles
-          ctx.shadowBlur = 8;
-          for (const p of particles) {
+          // hub subsystem labels
+          if (cfg.labels) {
+            ctx.font = `${10 * devicePixelRatio}px ${getComputedStyle(document.body).fontFamily}`;
+            ctx.textBaseline = 'middle';
+            for (const h of hubs) {
+              const p = proj[h.idx];
+              if (p.depth < 0.45) continue; // only label front-facing hubs
+              ctx.fillStyle = rgba(0.5 + p.depth * 0.5);
+              ctx.fillText(h.label, p.x + 10 * devicePixelRatio, p.y);
+            }
+          }
+
+          // rising upsweep particle stream (base emitter)
+          const baseY = Rp * 1.15;
+          for (const p of stream) {
             p.a += 0.002 * p.s;
-            p.z += 0.003 * p.s;
+            p.z += 0.003 * p.s * cfg.upsweep;
             if (p.z > 1) p.z = 0;
             const rr = p.r * (0.7 + p.z * 0.6);
-            const x = Math.cos(p.a) * rr;
-            const y = Math.sin(p.a) * rr * 0.4 + Rp * 0.7 - p.z * Rp * 1.5;
-            ctx.fillStyle = rgba((1 - p.z) * 0.5);
+            const x = Math.cos(p.a) * rr * Rp * 0.5;
+            const y = baseY - p.z * Rp * 1.4;
+            ctx.fillStyle = rgba((1 - p.z) * 0.45);
             ctx.beginPath();
-            ctx.arc(x, y, 1.3 * devicePixelRatio, 0, Math.PI * 2);
+            ctx.arc(x, y, 1.2 * devicePixelRatio, 0, Math.PI * 2);
             ctx.fill();
           }
 
           ctx.restore();
+
+          // throttled stat text updates (cheap, but no need every single frame)
+          if (++statFrame % 12 === 0) {
+            stVisible.textContent = visible;
+            stFps.textContent = Math.round(fpsSmooth);
+            stState.textContent = state.toUpperCase();
+            stDot.classList.toggle('think', state === 'thinking');
+          }
+
           requestAnimationFrame(frame);
         }
         frame();
