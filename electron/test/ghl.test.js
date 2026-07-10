@@ -79,6 +79,26 @@ test('sendQuote runs the whole SOP: template + customer + sqft×price, sent sms_
   assert.ok(sent[0].userId); // required by the API
 });
 
+test('sendQuote uses the Phoenix calendar date, not the UTC one (past ~5pm Phoenix is already tomorrow in UTC)', async (t) => {
+  // 9:02 PM on July 10 in Phoenix (UTC-7, no DST) is 4:02 AM UTC on July 11.
+  // The server clock is UTC, so a naive toISOString().slice(0,10) would send
+  // issueDate "2026-07-11" — which GHL rejects as being in the future, since
+  // the account's own clock (Phoenix) still reads July 10.
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-07-11T04:02:00Z') });
+  const created = [];
+  const client = new GHLClient({
+    token: 't', locationId: 'LOC',
+    fetchImpl: stubFetch([
+      ['/contacts/', () => ok({ contacts: [{ id: 'c7', contactName: 'harold williams', email: 'h@x.com', phone: '+1555' }] })],
+      ['/invoices/estimate/template', () => ok({ data: [{ _id: 'tpl1', name: 'Polyaspartic Flake Flooring System', title: 'ESTIMATE', termsNotes: 'terms', businessDetails: {}, discount: { value: 0, type: 'percentage' }, items: [{ amount: 5, qty: 1, _id: 'x' }] }] })],
+      ['/invoices/estimate/est9/send', () => ok({ estimateStatus: 'sent' })],
+      ['/invoices/estimate', (u, o) => { created.push(JSON.parse(o.body)); return ok({ _id: 'est9' }); }],
+    ]),
+  });
+  await client.sendQuote({ contactName: 'harold', templateName: 'flake', squareFeet: 600, pricePerSquareFoot: 6 });
+  assert.equal(created[0].issueDate, '2026-07-10'); // Phoenix date, not the UTC "2026-07-11"
+});
+
 test('sendQuote refuses on an unknown template and names the real ones', async () => {
   const client = new GHLClient({
     token: 't', locationId: 'l',

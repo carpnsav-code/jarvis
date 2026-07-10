@@ -19,6 +19,17 @@ const API_VERSION = '2021-07-28';
 // session handoff; override with GHL_APPOINTMENT_USER_ID.)
 const DEFAULT_APPOINTMENT_USER = () => process.env.GHL_APPOINTMENT_USER_ID || '6pvVVC5ph1zf9m5Z7IKj';
 
+// The account's calendar date in America/Phoenix — NOT UTC. The server clock is
+// UTC, and Phoenix is 7 hours behind it, so any time after ~5pm Phoenix the UTC
+// date has already rolled to tomorrow. GHL rejects an issueDate/dueDate that
+// looks like it's in the future, so every date sent to the API must be computed
+// in the business's own timezone, not the server's.
+function phoenixDateString(offsetDays = 0) {
+  const d = new Date(Date.now() + offsetDays * 864e5);
+  // en-CA gives YYYY-MM-DD directly.
+  return d.toLocaleDateString('en-CA', { timeZone: 'America/Phoenix' });
+}
+
 // Append a custom note to a template's terms/notes, tolerating whatever shape
 // the API returns termsNotes in (string, {text}, {html}, or absent).
 function appendNote(termsNotes, note) {
@@ -193,8 +204,8 @@ class GHLClient {
         discount: template.discount || { value: 0, type: 'percentage' },
         termsNotes: appendNote(template.termsNotes, note),
         frequencySettings: { enabled: false },
-        issueDate: new Date().toISOString().slice(0, 10),
-        expiryDate: new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10),
+        issueDate: phoenixDateString(),
+        expiryDate: phoenixDateString(30),
       },
     });
     const estimateId = created._id || (created.estimate && created.estimate._id);
@@ -267,7 +278,7 @@ class GHLClient {
     // 3. fill it out: quantity = qty, $/unit = per-unit price
     const item = { ...template.items[0], qty: Number(quantity), amount: Number(amount) };
     delete item._id;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = phoenixDateString();
     const created = await this.request('POST', '/invoices/', {
       body: {
         altId: this.locationId,
