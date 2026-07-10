@@ -343,42 +343,91 @@
           }
         });
 
-        // --- the node sphere: fixed 3D layout + precomputed edges ---------------
-        const NODE_COUNT = 640;
-        const nodes = [];
-        const GOLDEN = Math.PI * (3 - Math.sqrt(5));
-        for (let i = 0; i < NODE_COUNT; i++) {
-          const y = 1 - (i / (NODE_COUNT - 1)) * 2;
-          const rAtY = Math.sqrt(Math.max(0, 1 - y * y));
-          const theta = GOLDEN * i;
-          const jitter = 0.82 + Math.random() * 0.36;
-          nodes.push({ x: Math.cos(theta) * rAtY * jitter, y: y * jitter, z: Math.sin(theta) * rAtY * jitter });
+        // --- the AI human: a wireframe holographic head that talks -------------
+        // Facial landmarks live in a normalized face plane (fx left→right,
+        // fy bottom→top, ~[-1,1]) and are lifted onto the front of a head
+        // ellipsoid so the face has real depth and turns believably. The mouth
+        // opens with Jarvis's speaking amplitude; the eyes blink.
+        const HEAD = { A: 0.98, B: 1.24, C: 0.82 }; // half width / height / depth
+        function bulge(fx, fy) {
+          const d = 1 - fx * fx - (fy * fy) / 1.35;
+          return d > 0 ? HEAD.C * Math.sqrt(d) : 0;
         }
-        // Nearest-neighbour edges, computed once — the cloud rotates as one
-        // rigid rotation, so relative distances (and thus the edge list) never
-        // change; no need to recompute per frame.
-        const edges = [];
-        {
-          const seen = new Set();
-          const K = 3;
-          for (let i = 0; i < nodes.length; i++) {
-            const dists = [];
-            for (let j = 0; j < nodes.length; j++) {
-              if (i === j) continue;
-              const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y, dz = nodes[i].z - nodes[j].z;
-              dists.push([dx * dx + dy * dy + dz * dz, j]);
-            }
-            dists.sort((a, b) => a[0] - b[0]);
-            for (let k = 0; k < K && k < dists.length; k++) {
-              const j = dists[k][1];
-              const key = i < j ? `${i}_${j}` : `${j}_${i}`;
-              if (!seen.has(key)) { seen.add(key); edges.push([i, j]); }
-            }
+        function ellipseStroke(cx, cy, rx, ry, n) {
+          const pts = [];
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * Math.PI * 2;
+            pts.push({ fx: cx + Math.cos(a) * rx, fy: cy + Math.sin(a) * ry });
           }
+          return { pts, closed: true };
         }
-        // A few "hub" nodes get subsystem labels, evenly spread around the sphere.
-        const HUB_LABELS = ['BRAIN', 'VOICE', 'MEMORY', 'SEARCH', 'GHL', 'SPOTIFY'];
-        const hubs = HUB_LABELS.map((label, k) => ({ idx: Math.floor((k / HUB_LABELS.length) * NODE_COUNT), label }));
+        function arcStroke(cx, cy, rx, ry, a0, a1, n) {
+          const pts = [];
+          for (let i = 0; i < n; i++) {
+            const a = a0 + (a1 - a0) * (i / (n - 1));
+            pts.push({ fx: cx + Math.cos(a) * rx, fy: cy + Math.sin(a) * ry });
+          }
+          return { pts, closed: false };
+        }
+
+        // Static shell: head outline + contour "mesh" + brows + nose.
+        const shell = [];
+        {
+          const outline = [];
+          const N = 62;
+          for (let i = 0; i < N; i++) {
+            const th = (i / N) * Math.PI * 2;
+            const c = Math.cos(th), s = Math.sin(th);
+            const w = 0.9 * (c < 0 ? 1 - 0.34 * -c : 1); // narrower jaw/chin
+            const fy = c < 0 ? c * 1.12 : c * 1.02;
+            outline.push({ fx: s * w, fy });
+          }
+          shell.push({ pts: outline, closed: true });
+          for (const fy of [0.74, 0.48, 0.22, -0.04, -0.32, -0.6, -0.85]) {
+            const base = Math.sqrt(Math.max(0, 1 - (fy * fy) / 1.3)) * 0.86 * (fy < -0.4 ? 1 + 0.45 * (fy + 0.4) : 1);
+            if (base < 0.05) continue;
+            const pts = [];
+            const M = 15;
+            for (let j = 0; j < M; j++) pts.push({ fx: -base + (2 * base * j) / (M - 1), fy });
+            shell.push({ pts, closed: false });
+          }
+          for (const fx of [-0.62, -0.32, 0, 0.32, 0.62]) {
+            const pts = [];
+            const M = 22;
+            for (let j = 0; j < M; j++) {
+              const fy = -1.08 + (2.1 * j) / (M - 1);
+              if (1 - fx * fx - (fy * fy) / 1.32 > 0.02) pts.push({ fx, fy });
+            }
+            if (pts.length > 1) shell.push({ pts, closed: false });
+          }
+          shell.push(arcStroke(-0.4, 0.34, 0.22, 0.09, Math.PI * 0.12, Math.PI * 0.88, 7));  // brows
+          shell.push(arcStroke(0.4, 0.34, 0.22, 0.09, Math.PI * 0.12, Math.PI * 0.88, 7));
+          shell.push({ pts: [{ fx: 0, fy: 0.22 }, { fx: -0.02, fy: 0.02 }, { fx: 0, fy: -0.16 }, { fx: -0.12, fy: -0.23 }], closed: false }); // nose
+          shell.push({ pts: [{ fx: 0, fy: -0.16 }, { fx: 0.12, fy: -0.23 }], closed: false });
+        }
+        const faceLabels = [
+          { fx: 0, fy: 0.82, text: 'BRAIN' },
+          { fx: 0.5, fy: -0.5, text: 'VOICE' },
+          { fx: -0.78, fy: 0.24, text: 'MEMORY' },
+        ];
+        const faceDots = [
+          { fx: -0.4, fy: 0.22 }, { fx: 0.4, fy: 0.22 },   // pupils
+          { fx: -0.1, fy: -0.24 }, { fx: 0.1, fy: -0.24 }, // nostrils
+        ];
+        // Blink state.
+        let nextBlink = 1.5 + Math.random() * 3;
+        let blinkStart = -1;
+        // Geometry counts for the stats HUD (shell + eyes + mouth + dots).
+        const GEO = (() => {
+          let n = faceDots.length, l = 0;
+          const seed = shell.concat([
+            ellipseStroke(-0.4, 0.22, 0.19, 0.1, 14),
+            ellipseStroke(0.4, 0.22, 0.19, 0.1, 14),
+            ellipseStroke(0, -0.52, 0.24, 0.05, 20),
+          ]);
+          for (const st of seed) { n += st.pts.length; l += st.closed ? st.pts.length : st.pts.length - 1; }
+          return { nodes: n, lines: l };
+        })();
 
         // Rising "upsweep" particle stream near the base of the sphere.
         const stream = Array.from({ length: 50 }, () => ({
@@ -419,8 +468,8 @@
         const stFps = document.getElementById('st-fps');
         const stDot = document.getElementById('st-dot');
         const stState = document.getElementById('st-state');
-        stNodes.textContent = NODE_COUNT;
-        stLines.textContent = edges.length;
+        stNodes.textContent = GEO.nodes;
+        stLines.textContent = GEO.lines;
         let lastFrameT = performance.now();
         let fpsSmooth = 60;
         let statFrame = 0;
@@ -428,8 +477,6 @@
         let zoomBoost = 0;
 
         let t = 0;
-        let rotY = 0;
-        const tiltX = 0.32;
         function frame() {
           const now = performance.now();
           const dt = Math.max(1, now - lastFrameT);
@@ -447,7 +494,6 @@
           zoomBoost *= 0.93;
           const Rp = R * (1 + 0.03 * (amp - 0.3)) * (1 + (cfg.zoom ? zoomBoost : 0) * 0.2);
 
-          rotY += (0.003 + cfg.pull * 0.02) + (state === 'speaking' ? 0.02 * Math.abs(Math.sin(t * 8)) : state === 'thinking' ? 0.025 : 0.002);
           ctx.clearRect(0, 0, W, H);
 
           // --- galaxy backdrop (optional) ---
@@ -484,59 +530,97 @@
           ctx.save();
           ctx.translate(cx, cy);
 
-          // --- project every node through the rigid rotation ---
-          const cY = Math.cos(rotY), sY = Math.sin(rotY);
-          const cX = Math.cos(tiltX), sX = Math.sin(tiltX);
-          const focal = 2.4;
-          const proj = new Array(nodes.length);
-          let visible = 0;
-          for (let i = 0; i < nodes.length; i++) {
-            const n = nodes[i];
-            const x1 = n.x * cY + n.z * sY;
-            const z1 = -n.x * sY + n.z * cY;
-            const y2 = n.y * cX - z1 * sX;
-            const z2 = n.y * sX + z1 * cX;
+          // --- head pose: gentle sway + slight nod (more animated while talking) ---
+          const yaw = (0.26 + cfg.pull * 0.28) * Math.sin(t * (0.4 + cfg.pull * 0.5))
+            + (state === 'speaking' ? 0.05 * Math.sin(t * 3.1) : 0);
+          const pitch = 0.09 * Math.sin(t * 0.33) - 0.05;
+          const cY = Math.cos(yaw), sY = Math.sin(yaw);
+          const cX = Math.cos(pitch), sX = Math.sin(pitch);
+          const focal = 2.6;
+          function project(fx, fy) {
+            const X = fx * HEAD.A, Y = fy * HEAD.B, Z = bulge(fx, fy);
+            const x1 = X * cY + Z * sY;
+            const z1 = -X * sY + Z * cY;
+            const y1 = Y * cX - z1 * sX;
+            const z2 = Y * sX + z1 * cX;
             const scale = focal / (focal + z2);
-            const depth = (1 - z2) / 2; // 0 (far) .. 1 (near)
-            if (z2 < 0.25) visible++;
-            proj[i] = { x: x1 * scale * Rp, y: y2 * scale * Rp, depth, scale };
+            const bright = Math.min(1, Math.max(0, (z2 + 0.35) / 1.05));
+            return { x: x1 * scale * Rp, y: -y1 * scale * Rp, bright, z2 };
           }
 
-          // edges (graph lines)
-          ctx.lineWidth = 0.7 * devicePixelRatio;
-          for (const [a, b] of edges) {
-            const pa = proj[a], pb = proj[b];
-            const d = (pa.depth + pb.depth) / 2;
-            if (d < 0.25) continue; // skip far-side lines for clarity
-            ctx.strokeStyle = rgba(0.10 + 0.22 * d);
-            ctx.beginPath();
-            ctx.moveTo(pa.x, pa.y);
-            ctx.lineTo(pb.x, pb.y);
-            ctx.stroke();
+          // --- mouth opening tracks speaking amplitude (syllable flutter) ---
+          let open;
+          if (state === 'speaking') open = (0.02 + Math.max(0, amp - 0.55) * 0.12) * (0.5 + 0.5 * Math.abs(Math.sin(t * 12)));
+          else if (state === 'listening') open = 0.014;
+          else open = 0.006;
+
+          // --- blink ---
+          if (blinkStart < 0 && t > nextBlink) blinkStart = t;
+          let eyeOpen = 1;
+          if (blinkStart >= 0) {
+            const p = (t - blinkStart) / 0.15;
+            if (p >= 1) { blinkStart = -1; nextBlink = t + 1.4 + Math.random() * 3.5; }
+            else eyeOpen = Math.abs(1 - 2 * p); // 1 → 0 → 1
           }
 
-          // nodes
-          ctx.shadowBlur = cfg.bloom ? 9 * devicePixelRatio : 0;
+          // Assemble every stroke for this frame (static shell + live eyes/mouth).
+          const strokes = shell.concat([
+            ellipseStroke(-0.4, 0.22, 0.19, 0.1 * eyeOpen + 0.006, 14),
+            ellipseStroke(0.4, 0.22, 0.19, 0.1 * eyeOpen + 0.006, 14),
+            ellipseStroke(0, -0.52, 0.24, 0.03 + open, 20),
+          ]);
+
+          // lines
+          ctx.lineWidth = 0.9 * devicePixelRatio;
+          let visible = 0;
+          for (const st of strokes) {
+            const pr = st.pts.map((pt) => project(pt.fx, pt.fy));
+            for (const p of pr) if (p.z2 > 0) visible++;
+            const last = st.closed ? pr.length : pr.length - 1;
+            for (let i = 0; i < last; i++) {
+              const a = pr[i], b = pr[(i + 1) % pr.length];
+              const br = (a.bright + b.bright) / 2;
+              ctx.strokeStyle = rgba(0.12 + 0.5 * br);
+              ctx.beginPath();
+              ctx.moveTo(a.x, a.y);
+              ctx.lineTo(b.x, b.y);
+              ctx.stroke();
+            }
+            // node dots at each landmark
+            ctx.shadowBlur = cfg.bloom ? 8 * devicePixelRatio : 0;
+            ctx.shadowColor = rgba(0.9);
+            for (const p of pr) {
+              const rr = cfg.nodeSize * (0.5 + p.bright * 1.0) * devicePixelRatio;
+              ctx.fillStyle = rgba(0.3 + p.bright * 0.6);
+              ctx.beginPath();
+              ctx.arc(p.x, p.y, rr, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.shadowBlur = 0;
+          }
+
+          // pupils + nostrils
+          ctx.shadowBlur = cfg.bloom ? 8 * devicePixelRatio : 0;
           ctx.shadowColor = rgba(0.9);
-          for (let i = 0; i < proj.length; i++) {
-            const p = proj[i];
-            const rr = cfg.nodeSize * (0.6 + p.depth * 1.1) * devicePixelRatio;
-            ctx.fillStyle = rgba(0.25 + p.depth * 0.65);
+          for (let i = 0; i < faceDots.length; i++) {
+            const p = project(faceDots[i].fx, faceDots[i].fy);
+            const isPupil = i < 2;
+            ctx.fillStyle = rgba((isPupil ? 0.7 : 0.4) * (0.4 + p.bright * 0.6) * (isPupil ? eyeOpen : 1));
             ctx.beginPath();
-            ctx.arc(p.x, p.y, rr, 0, Math.PI * 2);
+            ctx.arc(p.x, p.y, (isPupil ? 2.4 : 1.4) * cfg.nodeSize * devicePixelRatio, 0, Math.PI * 2);
             ctx.fill();
           }
           ctx.shadowBlur = 0;
 
-          // hub subsystem labels
+          // subsystem labels anchored to the face
           if (cfg.labels) {
             ctx.font = `${10 * devicePixelRatio}px ${getComputedStyle(document.body).fontFamily}`;
             ctx.textBaseline = 'middle';
-            for (const h of hubs) {
-              const p = proj[h.idx];
-              if (p.depth < 0.45) continue; // only label front-facing hubs
-              ctx.fillStyle = rgba(0.5 + p.depth * 0.5);
-              ctx.fillText(h.label, p.x + 10 * devicePixelRatio, p.y);
+            for (const lb of faceLabels) {
+              const p = project(lb.fx, lb.fy);
+              if (p.z2 < -0.1) continue;
+              ctx.fillStyle = rgba(0.4 + 0.5 * p.bright);
+              ctx.fillText(lb.text, p.x + 8 * devicePixelRatio, p.y);
             }
           }
 
