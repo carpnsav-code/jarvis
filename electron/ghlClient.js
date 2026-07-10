@@ -108,6 +108,40 @@ class GHLClient {
       query: { location_id: this.locationId, pipeline_id: pipelineId, status, q: query, limit },
     });
   }
+
+  /** The Mint Concrete Polishing pipeline (with its stages), matched by id then
+   *  name. Cached for the process. Override the id with GHL_PIPELINE_ID. */
+  async mintPipeline() {
+    if (this._mintPipe) return this._mintPipe;
+    const d = await this.listPipelines();
+    const pipes = d.pipelines || [];
+    const wantId = process.env.GHL_PIPELINE_ID || '5qKdJCOxNf6p2MUEaHpI';
+    this._mintPipe =
+      pipes.find((p) => p.id === wantId) ||
+      pipes.find((p) => /mint concrete polishing/i.test(p.name || '')) ||
+      pipes[0] ||
+      null;
+    return this._mintPipe;
+  }
+
+  /** Every opportunity in a pipeline (all stages), paginated and de-duped by id
+   *  so it's correct whether or not the API honours the `page` cursor. Callers
+   *  bucket/count by pipelineStageId themselves — that's how "leads" are read. */
+  async allOpportunities(pipelineId, { maxPages = 15, limit = 100 } = {}) {
+    const byId = new Map();
+    for (let page = 1; page <= maxPages; page++) {
+      const d = await this.request('GET', '/opportunities/search', {
+        query: { location_id: this.locationId, pipeline_id: pipelineId, limit, page },
+      });
+      const batch = d.opportunities || [];
+      let added = 0;
+      for (const o of batch) {
+        if (o && o.id && !byId.has(o.id)) { byId.set(o.id, o); added += 1; }
+      }
+      if (batch.length < limit || added === 0) break;
+    }
+    return [...byId.values()];
+  }
   updateOpportunity({ opportunityId, ...fields }) {
     return this.request('PUT', `/opportunities/${opportunityId}`, { body: fields });
   }

@@ -40,6 +40,7 @@ const { parseProductivityCommand, resolveProductivity } = require('./productivit
 const { loadKnowledgeFiles } = require('./knowledge');
 const { GHLClient } = require('./ghlClient');
 const { isGhlQuery, runGhlAgent, parseTextCommand, runTextCommand, parseEmailCommand, runEmailCommand } = require('./ghlAgent');
+const { isLeadsQuery, parseLeadsQuery, runLeadsQuery } = require('./leadsQuery');
 const { isQuoteStart, advanceQuote, money } = require('./quoteFlow');
 const { isInvoiceStart, advanceInvoice } = require('./invoiceFlow');
 const {
@@ -374,6 +375,14 @@ async function routeVoice(text, pageOrigin = ORIGIN) {
     const { speech, state } = await runDocTurn(advanceQuote, pendingQuote, text, sendConfirmedQuote, 'estimate');
     pendingQuote = state;
     out.speech = speech;
+    return out;
+  }
+
+  // "Leads" = opportunities by pipeline stage. Counting leads in a stage or the
+  // most recent lead is read straight from the pipeline — deterministic, never
+  // guessed, never treated as contacts.
+  if (isLeadsQuery(text) && ghl.isConfigured()) {
+    out.speech = await runLeadsQuery(ghl, parseLeadsQuery(text));
     return out;
   }
 

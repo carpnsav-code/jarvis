@@ -303,8 +303,12 @@ async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT
         'not your job. If a request sounds autonomous ("keep an eye on", "follow up ' +
         'automatically"), say that is the automated agent\'s job. ' +
         'Call tools to fetch or change real data — never invent contacts, deals, or numbers. ' +
-        'A "lead" means a contact. For latest/newest/last lead questions ALWAYS use ' +
-        'ghl_latest_leads (sorted newest first) — ghl_list_contacts is NOT date-sorted. ' +
+        'A "lead" is an OPPORTUNITY in the "Mint Concrete Polishing" pipeline, grouped by ' +
+        'stage (New Lead, Quote Sent, Won, Lost, etc.). To count leads in a stage ("how many ' +
+        'leads in New Lead") or find the newest lead, READ THE PIPELINE: ghl_list_pipelines ' +
+        'to get the stages, then ghl_list_opportunities, and count/sort the opportunities in ' +
+        'that pipelineStageId. NEVER answer a lead count or "most recent lead" from contacts ' +
+        '— ghl_list_contacts / ghl_latest_leads are only for looking up a person to message. ' +
         'To message a contact, first look them up with ghl_list_contacts to get the id. ' +
         'OPERATING RULES: The pipeline is "Mint Concrete Polishing". Only create or ' +
         'reschedule an appointment when Dan gives a specific day AND time; if he does not, ' +
