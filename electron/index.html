@@ -343,91 +343,127 @@
           }
         });
 
-        // --- the AI human: a wireframe holographic head that talks -------------
-        // Facial landmarks live in a normalized face plane (fx left→right,
-        // fy bottom→top, ~[-1,1]) and are lifted onto the front of a head
-        // ellipsoid so the face has real depth and turns believably. The mouth
-        // opens with Jarvis's speaking amplitude; the eyes blink.
-        const HEAD = { A: 0.98, B: 1.24, C: 0.82 }; // half width / height / depth
-        function bulge(fx, fy) {
-          const d = 1 - fx * fx - (fy * fy) / 1.35;
-          return d > 0 ? HEAD.C * Math.sqrt(d) : 0;
-        }
-        function ellipseStroke(cx, cy, rx, ry, n) {
-          const pts = [];
-          for (let i = 0; i < n; i++) {
-            const a = (i / n) * Math.PI * 2;
-            pts.push({ fx: cx + Math.cos(a) * rx, fy: cy + Math.sin(a) * ry });
-          }
-          return { pts, closed: true };
-        }
-        function arcStroke(cx, cy, rx, ry, a0, a1, n) {
-          const pts = [];
-          for (let i = 0; i < n; i++) {
-            const a = a0 + (a1 - a0) * (i / (n - 1));
-            pts.push({ fx: cx + Math.cos(a) * rx, fy: cy + Math.sin(a) * ry });
-          }
-          return { pts, closed: false };
-        }
-
-        // Static shell: head outline + contour "mesh" + brows + nose.
-        const shell = [];
-        {
-          const outline = [];
-          const N = 62;
-          for (let i = 0; i < N; i++) {
-            const th = (i / N) * Math.PI * 2;
-            const c = Math.cos(th), s = Math.sin(th);
-            const w = 0.9 * (c < 0 ? 1 - 0.34 * -c : 1); // narrower jaw/chin
-            const fy = c < 0 ? c * 1.12 : c * 1.02;
-            outline.push({ fx: s * w, fy });
-          }
-          shell.push({ pts: outline, closed: true });
-          for (const fy of [0.74, 0.48, 0.22, -0.04, -0.32, -0.6, -0.85]) {
-            const base = Math.sqrt(Math.max(0, 1 - (fy * fy) / 1.3)) * 0.86 * (fy < -0.4 ? 1 + 0.45 * (fy + 0.4) : 1);
-            if (base < 0.05) continue;
-            const pts = [];
-            const M = 15;
-            for (let j = 0; j < M; j++) pts.push({ fx: -base + (2 * base * j) / (M - 1), fy });
-            shell.push({ pts, closed: false });
-          }
-          for (const fx of [-0.62, -0.32, 0, 0.32, 0.62]) {
-            const pts = [];
-            const M = 22;
-            for (let j = 0; j < M; j++) {
-              const fy = -1.08 + (2.1 * j) / (M - 1);
-              if (1 - fx * fx - (fy * fy) / 1.32 > 0.02) pts.push({ fx, fy });
-            }
-            if (pts.length > 1) shell.push({ pts, closed: false });
-          }
-          shell.push(arcStroke(-0.4, 0.34, 0.22, 0.09, Math.PI * 0.12, Math.PI * 0.88, 7));  // brows
-          shell.push(arcStroke(0.4, 0.34, 0.22, 0.09, Math.PI * 0.12, Math.PI * 0.88, 7));
-          shell.push({ pts: [{ fx: 0, fy: 0.22 }, { fx: -0.02, fy: 0.02 }, { fx: 0, fy: -0.16 }, { fx: -0.12, fy: -0.23 }], closed: false }); // nose
-          shell.push({ pts: [{ fx: 0, fy: -0.16 }, { fx: 0.12, fy: -0.23 }], closed: false });
-        }
-        const faceLabels = [
-          { fx: 0, fy: 0.82, text: 'BRAIN' },
-          { fx: 0.5, fy: -0.5, text: 'VOICE' },
-          { fx: -0.78, fy: 0.24, text: 'MEMORY' },
-        ];
-        const faceDots = [
-          { fx: -0.4, fy: 0.22 }, { fx: 0.4, fy: 0.22 },   // pupils
-          { fx: -0.1, fy: -0.24 }, { fx: 0.1, fy: -0.24 }, // nostrils
-        ];
-        // Blink state.
+        // --- the AI human: an original big-head cartoon mascot that talks ------
+        // Drawn as flat cartoon shapes (bezier fills + dark outlines), coloured to
+        // match the reference: peach skin, yellow shirt, red overalls, light-blue
+        // shoes. The mouth opens with Jarvis's speaking amplitude; the eyes blink.
+        // An original character — not a copy of any existing one.
+        const COL = {
+          ink: '#241712', skin: '#f7d1ab', shirt: '#f2d54a',
+          red: '#e0362f', shoe: '#96d4ea', eye: '#ffffff',
+        };
         let nextBlink = 1.5 + Math.random() * 3;
         let blinkStart = -1;
-        // Geometry counts for the stats HUD (shell + eyes + mouth + dots).
-        const GEO = (() => {
-          let n = faceDots.length, l = 0;
-          const seed = shell.concat([
-            ellipseStroke(-0.4, 0.22, 0.19, 0.1, 14),
-            ellipseStroke(0.4, 0.22, 0.19, 0.1, 14),
-            ellipseStroke(0, -0.52, 0.24, 0.05, 20),
-          ]);
-          for (const st of seed) { n += st.pts.length; l += st.closed ? st.pts.length : st.pts.length - 1; }
-          return { nodes: n, lines: l };
-        })();
+        // Representative control-point counts for the stats HUD.
+        const GEO = { nodes: 174, lines: 158 };
+
+        // Draw the mascot in unit coordinates (origin at its centre, y down).
+        // `mouth` 0..1 opens the mouth; `eyeOpen` 0..1 drives the blink.
+        function drawMascot(mouth, eyeOpen) {
+          const ink = COL.ink;
+          const LW = 0.05;
+          ctx.lineJoin = 'round';
+          ctx.lineCap = 'round';
+          const shape = (build, fill) => {
+            ctx.beginPath();
+            build();
+            if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+            ctx.lineWidth = LW; ctx.strokeStyle = ink; ctx.stroke();
+          };
+
+          // shoes
+          for (const sx of [-0.3, 0.3]) shape(() => ctx.ellipse(sx, 1.62, 0.34, 0.17, 0, 0, Math.PI * 2), COL.shoe);
+          // overall pants (red), two legs with a centre notch
+          shape(() => {
+            ctx.moveTo(-0.56, 0.5); ctx.lineTo(0.56, 0.5);
+            ctx.lineTo(0.52, 1.5); ctx.lineTo(0.1, 1.5);
+            ctx.lineTo(0.06, 0.95); ctx.lineTo(-0.06, 0.95);
+            ctx.lineTo(-0.1, 1.5); ctx.lineTo(-0.52, 1.5); ctx.closePath();
+          }, COL.red);
+          // shirt (yellow torso)
+          shape(() => {
+            ctx.moveTo(-0.6, -0.02);
+            ctx.bezierCurveTo(-0.66, 0.3, -0.6, 0.55, -0.5, 0.6);
+            ctx.lineTo(0.5, 0.6);
+            ctx.bezierCurveTo(0.6, 0.55, 0.66, 0.3, 0.6, -0.02);
+            ctx.bezierCurveTo(0.5, -0.2, -0.5, -0.2, -0.6, -0.02);
+            ctx.closePath();
+          }, COL.shirt);
+          // overall bib + straps (red)
+          shape(() => ctx.rect(-0.34, 0.02, 0.68, 0.5), COL.red);
+          for (const sx of [-0.28, 0.28]) shape(() => {
+            ctx.moveTo(sx - 0.06, 0.05); ctx.lineTo(sx - 0.06, -0.2);
+            ctx.lineTo(sx + 0.06, -0.22); ctx.lineTo(sx + 0.06, 0.05); ctx.closePath();
+          }, COL.red);
+          ctx.fillStyle = ink;
+          for (const sx of [-0.24, 0.24]) { ctx.beginPath(); ctx.arc(sx, 0.1, 0.03, 0, Math.PI * 2); ctx.fill(); }
+          // crossed arms (yellow sleeves + peach hands)
+          shape(() => { ctx.save(); ctx.translate(0, 0.34); ctx.rotate(-0.32); ctx.rect(-0.5, -0.11, 0.86, 0.22); ctx.restore(); }, COL.shirt);
+          shape(() => { ctx.save(); ctx.translate(0, 0.38); ctx.rotate(0.32); ctx.rect(-0.36, -0.11, 0.86, 0.22); ctx.restore(); }, COL.shirt);
+          shape(() => ctx.arc(-0.34, 0.5, 0.13, 0, Math.PI * 2), COL.skin);
+          shape(() => ctx.arc(0.34, 0.2, 0.13, 0, Math.PI * 2), COL.skin);
+          // neck
+          shape(() => ctx.rect(-0.2, -0.42, 0.4, 0.3), COL.skin);
+          // ears
+          for (const sx of [-1.0, 1.0]) shape(() => ctx.ellipse(sx, -1.18, 0.14, 0.18, 0, 0, Math.PI * 2), COL.skin);
+          // head (big cranium, narrow chin)
+          shape(() => {
+            ctx.moveTo(0, -2.28);
+            ctx.bezierCurveTo(0.98, -2.28, 1.2, -1.82, 1.06, -1.25);
+            ctx.bezierCurveTo(0.98, -0.8, 0.56, -0.42, 0.14, -0.36);
+            ctx.bezierCurveTo(0.05, -0.34, -0.05, -0.34, -0.14, -0.36);
+            ctx.bezierCurveTo(-0.56, -0.42, -0.98, -0.8, -1.06, -1.25);
+            ctx.bezierCurveTo(-1.2, -1.82, -0.98, -2.28, 0, -2.28);
+            ctx.closePath();
+          }, COL.skin);
+          // hair tuft
+          ctx.strokeStyle = ink; ctx.lineWidth = LW;
+          ctx.beginPath();
+          ctx.moveTo(-0.16, -2.16);
+          ctx.bezierCurveTo(-0.4, -2.5, -0.05, -2.62, 0.02, -2.32);
+          ctx.bezierCurveTo(0.16, -2.6, 0.42, -2.4, 0.22, -2.16);
+          ctx.stroke();
+          // eyes (big, half-lidded, smug)
+          const lidDrop = (1 - eyeOpen) * 0.55;
+          for (const sx of [-0.44, 0.44]) {
+            shape(() => ctx.ellipse(sx, -1.42, 0.4, 0.42, 0, 0, Math.PI * 2), COL.eye);
+            ctx.save();
+            ctx.beginPath(); ctx.ellipse(sx, -1.42, 0.4, 0.42, 0, 0, Math.PI * 2); ctx.clip();
+            ctx.fillStyle = COL.skin;
+            ctx.fillRect(sx - 0.45, -1.95, 0.9, (-1.68 + lidDrop) + 1.95); // droopy upper lid
+            ctx.restore();
+            ctx.strokeStyle = ink; ctx.lineWidth = LW * 1.1;
+            ctx.beginPath();
+            ctx.moveTo(sx - 0.4, -1.68 + lidDrop);
+            ctx.quadraticCurveTo(sx, -1.62 + lidDrop, sx + 0.4, -1.7 + lidDrop);
+            ctx.stroke();
+            ctx.fillStyle = ink;
+            ctx.beginPath(); ctx.arc(sx, -1.28, 0.13 * (0.35 + 0.65 * eyeOpen), 0, Math.PI * 2); ctx.fill();
+          }
+          // eyebrows (thin, angled)
+          ctx.strokeStyle = ink; ctx.lineWidth = LW;
+          ctx.beginPath(); ctx.moveTo(-0.78, -1.92); ctx.lineTo(-0.2, -1.82); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(0.78, -1.92); ctx.lineTo(0.2, -1.82); ctx.stroke();
+          // nose (small pointed bump, left of centre)
+          shape(() => {
+            ctx.moveTo(0.02, -1.12);
+            ctx.bezierCurveTo(-0.18, -1.02, -0.14, -0.9, 0.02, -0.9);
+            ctx.bezierCurveTo(0.08, -0.9, 0.06, -1.02, 0.02, -1.12);
+            ctx.closePath();
+          }, COL.skin);
+          // mouth
+          ctx.strokeStyle = ink; ctx.lineWidth = LW * 1.1;
+          if (mouth < 0.06) {
+            ctx.beginPath(); ctx.moveTo(-0.12, -0.74);
+            ctx.quadraticCurveTo(0.12, -0.66, 0.36, -0.78); ctx.stroke(); // smirk
+          } else {
+            const my = 0.05 + 0.16 * mouth;
+            ctx.beginPath(); ctx.ellipse(0.12, -0.72, 0.2, my, 0, 0, Math.PI * 2);
+            ctx.fillStyle = ink; ctx.fill(); ctx.stroke();
+            ctx.fillStyle = COL.red;
+            ctx.beginPath(); ctx.ellipse(0.12, -0.72 + my * 0.5, 0.12, my * 0.4, 0, 0, Math.PI); ctx.fill();
+          }
+        }
 
         // Rising "upsweep" particle stream near the base of the sphere.
         const stream = Array.from({ length: 50 }, () => ({
@@ -530,97 +566,54 @@
           ctx.save();
           ctx.translate(cx, cy);
 
-          // --- head pose: gentle sway + slight nod (more animated while talking) ---
-          const yaw = (0.26 + cfg.pull * 0.28) * Math.sin(t * (0.4 + cfg.pull * 0.5))
-            + (state === 'speaking' ? 0.05 * Math.sin(t * 3.1) : 0);
-          const pitch = 0.09 * Math.sin(t * 0.33) - 0.05;
-          const cY = Math.cos(yaw), sY = Math.sin(yaw);
-          const cX = Math.cos(pitch), sX = Math.sin(pitch);
-          const focal = 2.6;
-          function project(fx, fy) {
-            const X = fx * HEAD.A, Y = fy * HEAD.B, Z = bulge(fx, fy);
-            const x1 = X * cY + Z * sY;
-            const z1 = -X * sY + Z * cY;
-            const y1 = Y * cX - z1 * sX;
-            const z2 = Y * sX + z1 * cX;
-            const scale = focal / (focal + z2);
-            const bright = Math.min(1, Math.max(0, (z2 + 0.35) / 1.05));
-            return { x: x1 * scale * Rp, y: -y1 * scale * Rp, bright, z2 };
-          }
+          // --- expression + motion driven by Jarvis's state ---
+          let mouth;
+          if (state === 'speaking') mouth = Math.min(1, (0.2 + Math.max(0, amp - 0.5) * 0.7) * (0.4 + 0.6 * Math.abs(Math.sin(t * 13))));
+          else if (state === 'listening') mouth = 0.05;
+          else mouth = 0;
 
-          // --- mouth opening tracks speaking amplitude (syllable flutter) ---
-          let open;
-          if (state === 'speaking') open = (0.02 + Math.max(0, amp - 0.55) * 0.12) * (0.5 + 0.5 * Math.abs(Math.sin(t * 12)));
-          else if (state === 'listening') open = 0.014;
-          else open = 0.006;
-
-          // --- blink ---
           if (blinkStart < 0 && t > nextBlink) blinkStart = t;
           let eyeOpen = 1;
           if (blinkStart >= 0) {
-            const p = (t - blinkStart) / 0.15;
+            const p = (t - blinkStart) / 0.14;
             if (p >= 1) { blinkStart = -1; nextBlink = t + 1.4 + Math.random() * 3.5; }
             else eyeOpen = Math.abs(1 - 2 * p); // 1 → 0 → 1
           }
+          const breathe = Math.sin(t * 1.6) * 0.02 + (state === 'speaking' ? Math.sin(t * 6) * 0.012 : 0);
+          const tilt = (0.02 + cfg.pull * 0.05) * Math.sin(t * 0.6);
+          const S = Rp * 1.08;
+          const visible = GEO.nodes;
 
-          // Assemble every stroke for this frame (static shell + live eyes/mouth).
-          const strokes = shell.concat([
-            ellipseStroke(-0.4, 0.22, 0.19, 0.1 * eyeOpen + 0.006, 14),
-            ellipseStroke(0.4, 0.22, 0.19, 0.1 * eyeOpen + 0.006, 14),
-            ellipseStroke(0, -0.52, 0.24, 0.03 + open, 20),
-          ]);
-
-          // lines
-          ctx.lineWidth = 0.9 * devicePixelRatio;
-          let visible = 0;
-          for (const st of strokes) {
-            const pr = st.pts.map((pt) => project(pt.fx, pt.fy));
-            for (const p of pr) if (p.z2 > 0) visible++;
-            const last = st.closed ? pr.length : pr.length - 1;
-            for (let i = 0; i < last; i++) {
-              const a = pr[i], b = pr[(i + 1) % pr.length];
-              const br = (a.bright + b.bright) / 2;
-              ctx.strokeStyle = rgba(0.12 + 0.5 * br);
-              ctx.beginPath();
-              ctx.moveTo(a.x, a.y);
-              ctx.lineTo(b.x, b.y);
-              ctx.stroke();
-            }
-            // node dots at each landmark
-            ctx.shadowBlur = cfg.bloom ? 8 * devicePixelRatio : 0;
-            ctx.shadowColor = rgba(0.9);
-            for (const p of pr) {
-              const rr = cfg.nodeSize * (0.5 + p.bright * 1.0) * devicePixelRatio;
-              ctx.fillStyle = rgba(0.3 + p.bright * 0.6);
-              ctx.beginPath();
-              ctx.arc(p.x, p.y, rr, 0, Math.PI * 2);
-              ctx.fill();
-            }
-            ctx.shadowBlur = 0;
+          // soft state-tinted glow halo behind the mascot (bloom control)
+          if (cfg.bloom) {
+            const halo = ctx.createRadialGradient(0, -0.2 * S, 0, 0, -0.2 * S, S * 2.4);
+            halo.addColorStop(0, rgba(0.13));
+            halo.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = halo;
+            ctx.fillRect(-W, -H, W * 2, H * 2);
           }
 
-          // pupils + nostrils
-          ctx.shadowBlur = cfg.bloom ? 8 * devicePixelRatio : 0;
-          ctx.shadowColor = rgba(0.9);
-          for (let i = 0; i < faceDots.length; i++) {
-            const p = project(faceDots[i].fx, faceDots[i].fy);
-            const isPupil = i < 2;
-            ctx.fillStyle = rgba((isPupil ? 0.7 : 0.4) * (0.4 + p.bright * 0.6) * (isPupil ? eyeOpen : 1));
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, (isPupil ? 2.4 : 1.4) * cfg.nodeSize * devicePixelRatio, 0, Math.PI * 2);
-            ctx.fill();
-          }
+          ctx.save();
+          ctx.translate(0, breathe * S);
+          ctx.rotate(tilt);
+          ctx.scale(S, S);
+          ctx.translate(0, 0.35); // vertical centring
+          ctx.globalAlpha = cfg.opacity;
+          ctx.shadowBlur = cfg.bloom ? 6 : 0;
+          ctx.shadowColor = rgba(0.55);
+          drawMascot(mouth, eyeOpen);
           ctx.shadowBlur = 0;
+          ctx.globalAlpha = 1;
+          ctx.restore();
 
-          // subsystem labels anchored to the face
+          // subsystem labels floating beside the mascot
           if (cfg.labels) {
             ctx.font = `${10 * devicePixelRatio}px ${getComputedStyle(document.body).fontFamily}`;
             ctx.textBaseline = 'middle';
-            for (const lb of faceLabels) {
-              const p = project(lb.fx, lb.fy);
-              if (p.z2 < -0.1) continue;
-              ctx.fillStyle = rgba(0.4 + 0.5 * p.bright);
-              ctx.fillText(lb.text, p.x + 8 * devicePixelRatio, p.y);
+            const tags = [['BRAIN', -0.2 * S, -2.15 * S], ['VOICE', 0.9 * S, -0.45 * S], ['MEMORY', -1.55 * S, -1.15 * S]];
+            for (const [txt, lx, ly] of tags) {
+              ctx.fillStyle = rgba(0.55);
+              ctx.fillText(txt, lx, ly);
             }
           }
 
