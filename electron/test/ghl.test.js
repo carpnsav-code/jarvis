@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { GHLClient, TOOLS } = require('../ghlClient');
-const { isGhlQuery, runGhlAgent, _resetModelBench, parseTextCommand, runTextCommand, parseEmailCommand, runEmailCommand } = require('../ghlAgent');
+const { isGhlQuery, runGhlAgent, _resetModelBench, _resetAgentMemory, parseTextCommand, runTextCommand, parseEmailCommand, runEmailCommand } = require('../ghlAgent');
 
 test('parseTextCommand handles the common spoken phrasings', () => {
   assert.deepEqual(parseTextCommand('text harold saying we are on for friday'), { name: 'harold', message: 'we are on for friday' });
@@ -280,6 +280,80 @@ test('findTemplates returns several matches for an ambiguous name (polished)', a
   assert.deepEqual(one.matches, ['800 Grit Polished Concrete System']);
   const flake = await client.findTemplates({ kind: 'invoice', name: 'flake' });
   assert.deepEqual(flake.matches, ['Polyaspartic Flake']);
+});
+
+test('bulk/workflow phrasing is never parsed as a single contact text', () => {
+  // The exact utterance that broke live: hijacked as contact "messages to all the people".
+  assert.equal(
+    parseTextCommand("let's start sending some text messages to all the people that are in the new leads column"),
+    null
+  );
+  assert.equal(parseTextCommand('text everyone in new leads saying we have openings'), null);
+  assert.equal(parseTextCommand('text each customer that we are running late'), null);
+  assert.equal(parseEmailCommand('email all the leads saying hi'), null);
+  // A real single-contact command still works.
+  assert.deepEqual(parseTextCommand('text harold saying we are on for friday'), { name: 'harold', message: 'we are on for friday' });
+});
+
+test('runGhlAgent uses the Fable 5 brain natively: tool_use loop + spoken answer', async () => {
+  _resetModelBench();
+  _resetAgentMemory();
+  const client = new GHLClient({
+    token: 't', locationId: 'l',
+    fetchImpl: stubFetch([['/opportunities/search', () => ok({ opportunities: [{ name: 'Acme' }] })]]),
+  });
+  let step = 0;
+  const anthropicImpl = async (url, opts) => {
+    step += 1;
+    const body = JSON.parse(opts.body);
+    assert.equal(url, 'https://api.anthropic.com/v1/messages');
+    assert.ok(body.tools.every((t) => t.input_schema), 'tools are in Anthropic shape');
+    if (step === 1) {
+      return { ok: true, status: 200, json: async () => ({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'tu1', name: 'ghl_list_opportunities', input: { status: 'open' } }] }) };
+    }
+    // The prior assistant content must be echoed back unchanged, with a tool_result.
+    const echoed = body.messages.find((m) => m.role === 'assistant' && Array.isArray(m.content));
+    assert.ok(echoed, 'assistant blocks echoed back');
+    const tr = body.messages[body.messages.length - 1];
+    assert.equal(tr.content[0].type, 'tool_result');
+    assert.equal(tr.content[0].tool_use_id, 'tu1');
+    return { ok: true, status: 200, json: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'One open deal, Acme, sir.' }] }) };
+  };
+  const speech = await runGhlAgent('what are my open deals', { keys: [], client, anthropicKey: 'AK', anthropicImpl });
+  assert.match(speech, /Acme/);
+  assert.equal(step, 2);
+});
+
+test('agent conversation memory carries follow-ups across calls', async () => {
+  _resetModelBench();
+  _resetAgentMemory();
+  const client = new GHLClient({ token: 't', locationId: 'l', fetchImpl: async () => ok({}) });
+  const seen = [];
+  const anthropicImpl = async (url, opts) => {
+    seen.push(JSON.parse(opts.body).messages);
+    return { ok: true, status: 200, json: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Lead one is Gina, sir. Text her?' }] }) };
+  };
+  await runGhlAgent('bring up the new leads one by one', { keys: [], client, anthropicKey: 'AK', anthropicImpl });
+  await runGhlAgent('yes, and the next one', { keys: [], client, anthropicKey: 'AK', anthropicImpl });
+  // Second call must include the first exchange as prior turns.
+  const second = seen[1];
+  assert.ok(second.some((m) => m.role === 'user' && String(m.content).includes('one by one')));
+  assert.ok(second.some((m) => m.role === 'assistant' && String(m.content).includes('Gina')));
+  _resetAgentMemory();
+});
+
+test('runGhlAgent falls back to the Groq ladder when Anthropic fails', async () => {
+  _resetModelBench();
+  _resetAgentMemory();
+  const client = new GHLClient({ token: 't', locationId: 'l', fetchImpl: async () => ok({}) });
+  const anthropicImpl = async () => ({ ok: false, status: 500, json: async () => ({}) });
+  const groqImpl = async (url) => {
+    if (url.includes('anthropic')) throw new Error('wrong impl');
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { role: 'assistant', content: 'Three deals, sir.' } }] }) };
+  };
+  const speech = await runGhlAgent('how many deals', { keys: ['k'], client, groqImpl, anthropicKey: 'AK', anthropicImpl });
+  assert.match(speech, /Three deals/);
+  _resetAgentMemory();
 });
 
 test('mid-loop rollover to Gemini flattens tool history (no thought_signature 400)', async () => {

@@ -39,7 +39,8 @@ const { parseCreateCommand, createFile } = require('./fileCreation');
 const { parseProductivityCommand, resolveProductivity } = require('./productivity');
 const { loadKnowledgeFiles } = require('./knowledge');
 const { GHLClient } = require('./ghlClient');
-const { isGhlQuery, runGhlAgent, parseTextCommand, runTextCommand, parseEmailCommand, runEmailCommand } = require('./ghlAgent');
+const { isGhlQuery, runGhlAgent, isFollowUp, parseTextCommand, runTextCommand, parseEmailCommand, runEmailCommand } = require('./ghlAgent');
+const { hasAnthropic } = require('./anthropic');
 const { isLeadsQuery, parseLeadsQuery, runLeadsQuery } = require('./leadsQuery');
 const { isQuoteStart, advanceQuote, money } = require('./quoteFlow');
 const { isInvoiceStart, advanceInvoice } = require('./invoiceFlow');
@@ -104,6 +105,9 @@ const memory = new MemoryStore();
 let lastSpotifyState = null;
 // One-shot CSRF state for the cloud Spotify OAuth round-trip.
 let spotifyOAuthState = null;
+// When the GHL agent last handled a turn — short utterances soon after
+// continue its workflow instead of falling to the casual brain.
+let lastGhlAgentAt = 0;
 // A document (estimate or invoice) being collected/confirmed across turns.
 let pendingQuote = null;
 let pendingInvoice = null;
@@ -392,8 +396,12 @@ async function routeVoice(text, pageOrigin = ORIGIN) {
   }
 
   // Live GoHighLevel operations ("what are my open deals", "text Sam …").
-  if (isGhlQuery(text) && ghl.isConfigured()) {
+  // A short utterance right after an agent turn ("next one", "yes", "skip
+  // him") continues the agent's workflow — the agent keeps conversation memory.
+  const agentFollowUp = Date.now() - lastGhlAgentAt < 3 * 60 * 1000 && isFollowUp(text);
+  if ((isGhlQuery(text) || agentFollowUp) && ghl.isConfigured()) {
     out.speech = await runGhlAgent(text, { keys: loadGroqKeys(), client: ghl });
+    lastGhlAgentAt = Date.now();
     return out;
   }
 
@@ -665,7 +673,7 @@ console.log(
   `\n  ✦ Jarvis is running (web mode — no Electron needed).\n\n` +
     `    On this Mac:     ${ORIGIN}\n` +
     phoneLine +
-    `\n    Brain: ${keys ? `${keys} Groq key(s)` : 'no Groq key'}${gemini ? ' + Gemini backup ✓' : ' (add GEMINI_API_KEY for way more usage)'}\n` +
+    `\n    Brain: ${hasAnthropic() ? 'Claude (Fable 5) ✓ + ' : ''}${keys ? `${keys} Groq key(s)` : 'no Groq key'}${gemini ? ' + Gemini backup ✓' : ' (add GEMINI_API_KEY for way more usage)'}\n` +
     `    Voice: ${voice}\n` +
     `    Press Ctrl+C here to stop.\n`,
 );

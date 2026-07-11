@@ -93,3 +93,41 @@ test('isConfigured is true with only a Gemini key', () => {
   assert.equal(new GroqBrain({ keys: [], geminiKey: 'g' }).isConfigured(), true);
   assert.equal(new GroqBrain({ keys: [], geminiKey: '' }).isConfigured(), false);
 });
+
+test('reply prefers the Fable 5 brain when an Anthropic key is set', async () => {
+  const urls = [];
+  const brain = new GroqBrain({
+    keys: ['k1'],
+    anthropicKey: 'AK',
+    fetchImpl: async (url, opts) => {
+      urls.push(url);
+      if (url.includes('api.anthropic.com')) {
+        const body = JSON.parse(opts.body);
+        // system separate, no thinking config, no temperature — Fable 5 rules
+        assert.ok(body.system.length > 0);
+        assert.equal(body.thinking, undefined);
+        assert.equal(body.temperature, undefined);
+        return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: 'From Claude, sir.' }] }) };
+      }
+      throw new Error('should not reach groq');
+    },
+  });
+  assert.equal(await brain.reply('hi'), 'From Claude, sir.');
+  assert.ok(urls[0].includes('api.anthropic.com'));
+});
+
+test('reply falls back to Groq when Anthropic fails', async () => {
+  const brain = new GroqBrain({
+    keys: ['k1'],
+    anthropicKey: 'AK',
+    fetchImpl: async (url) => {
+      if (url.includes('api.anthropic.com')) return { ok: false, status: 500, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'from groq' } }] }) };
+    },
+  });
+  assert.equal(await brain.reply('hi'), 'from groq');
+});
+
+test('isConfigured is true with only an Anthropic key', () => {
+  assert.equal(new GroqBrain({ keys: [], geminiKey: '', anthropicKey: 'a' }).isConfigured(), true);
+});

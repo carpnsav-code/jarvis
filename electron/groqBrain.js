@@ -16,6 +16,8 @@
  * fetch is injectable, so the failover logic is unit-tested without the network.
  */
 
+const { anthropicMessage, textFrom } = require('./anthropic');
+
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // Google Gemini's OpenAI-compatible endpoint — a second, independent free
 // quota (~1500 requests/day) the brain rolls over to when Groq is tapped out.
@@ -71,10 +73,11 @@ class GroqBrain {
    * @param {() => string} [opts.factsProvider]  returns a memory-context block
    * @param {typeof fetch} [opts.fetchImpl]
    */
-  constructor({ keys = [], model = DEFAULT_MODEL, personality = DEFAULT_PERSONALITY, factsProvider = null, knowledge = '', geminiKey = process.env.GEMINI_API_KEY, geminiModel = process.env.GEMINI_MODEL || GEMINI_DEFAULT_MODEL, fetchImpl = fetch } = {}) {
+  constructor({ keys = [], model = DEFAULT_MODEL, personality = DEFAULT_PERSONALITY, factsProvider = null, knowledge = '', geminiKey = process.env.GEMINI_API_KEY, geminiModel = process.env.GEMINI_MODEL || GEMINI_DEFAULT_MODEL, anthropicKey = process.env.ANTHROPIC_API_KEY, fetchImpl = fetch } = {}) {
     this.keys = keys;
     this.geminiKey = geminiKey || '';
     this.geminiModel = geminiModel;
+    this.anthropicKey = anthropicKey || '';
     this.model = model;
     this.personality = personality;
     this.factsProvider = factsProvider;
@@ -84,13 +87,14 @@ class GroqBrain {
   }
 
   isConfigured() {
-    return this.keys.length > 0 || Boolean(this.geminiKey);
+    return this.keys.length > 0 || Boolean(this.geminiKey) || Boolean(this.anthropicKey);
   }
 
-  /** All AI endpoints in priority order: every Groq key, then Gemini. */
+  /** All AI endpoints in priority order: Anthropic (Fable 5), Groq keys, Gemini. */
   endpoints() {
     const eps = this.keys.map((key, i) => ({ url: GROQ_URL, key, model: this.model, label: `groq key ${i + 1}` }));
     if (this.geminiKey) eps.push({ url: GEMINI_URL, key: this.geminiKey, model: this.geminiModel, label: 'gemini' });
+    if (this.anthropicKey) eps.unshift({ label: 'anthropic', key: this.anthropicKey });
     return eps;
   }
 
@@ -138,10 +142,34 @@ class GroqBrain {
     throw new Error(`All AI providers failed. Last error: ${lastError ? lastError.message : 'unknown'}`);
   }
 
-  /** One rotation over every endpoint (Groq keys, then Gemini); null if all failed. */
+  /** One rotation over every endpoint (Anthropic, Groq keys, Gemini); null if all failed. */
   async tryKeys(messages, userText) {
     this.lastTryError = null;
     for (const ep of this.endpoints()) {
+      // Anthropic speaks its own wire format: system rides separately, and the
+      // reply is content blocks. Effort low keeps the always-on thinking quick
+      // for a voice loop; max_tokens must cover thinking + the spoken answer.
+      if (ep.label === 'anthropic') {
+        try {
+          const resp = await anthropicMessage({
+            system: messages[0].content,
+            messages: messages.slice(1).map((m) => ({ role: m.role, content: m.content })),
+            maxTokens: 4000,
+            effort: 'low',
+            apiKey: ep.key,
+            fetchImpl: this.fetchImpl,
+          });
+          const reply = textFrom(resp);
+          if (!reply) throw new Error('empty anthropic reply');
+          this.history.push({ role: 'user', content: userText });
+          this.history.push({ role: 'assistant', content: reply });
+          if (this.history.length > MAX_HISTORY * 2) this.history = this.history.slice(-MAX_HISTORY * 2);
+          return reply;
+        } catch (err) {
+          this.lastTryError = err;
+          continue;
+        }
+      }
       try {
         const res = await this.fetchImpl(ep.url, {
           method: 'POST',

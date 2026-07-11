@@ -13,6 +13,7 @@
  */
 
 const { GHLClient, TOOLS } = require('./ghlClient');
+const { hasAnthropic, anthropicMessage, textFrom, toolUsesFrom, toAnthropicTools } = require('./anthropic');
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // Gemini's OpenAI-compatible endpoint (supports function calling) — a second,
@@ -79,12 +80,17 @@ const TEXT_PATTERNS = [
   /\btext\s+([a-z][a-z .'-]{0,40}?):\s*(.+)/i,
 ];
 
+// A "name" that is really a bulk/plural/workflow phrase ("all the people",
+// "everyone in new leads", "messages to all…") must never be treated as one
+// contact — those requests belong to the reasoning agent, not the fast path.
+const BULK_NAME = /\b(all|everyone|everybody|every|each|people|leads?|customers?|clients?|contacts?|messages?|them|those|these|one by one)\b/i;
+
 /** @returns {{name:string,message:string}|null} */
 function parseTextCommand(text) {
   const t = String(text || '').trim();
   for (const re of TEXT_PATTERNS) {
     const m = t.match(re);
-    if (m && m[1].trim() && m[2].trim()) {
+    if (m && m[1].trim() && m[2].trim() && !BULK_NAME.test(m[1])) {
       return { name: m[1].trim(), message: m[2].trim() };
     }
   }
@@ -132,7 +138,7 @@ function parseEmailCommand(text) {
   const t = String(text || '').trim();
   for (const re of EMAIL_PATTERNS) {
     const m = t.match(re);
-    if (m && m[1].trim() && m[2].trim()) return { name: m[1].trim(), message: m[2].trim() };
+    if (m && m[1].trim() && m[2].trim() && !BULK_NAME.test(m[1])) return { name: m[1].trim(), message: m[2].trim() };
   }
   return null;
 }
@@ -283,17 +289,76 @@ async function callGroq(messages, { keys, model, groqImpl, tools = TOOLS, gemini
  * @param {string} [deps.now]         ISO timestamp for date reasoning
  * @returns {Promise<string>}
  */
-async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT_MODEL, geminiKey = process.env.GEMINI_API_KEY, now = new Date().toISOString() }) {
-  if ((!keys || !keys.length) && !geminiKey) return 'I need an AI key to run that, sir.';
+// Rolling agent conversation memory: each voice turn used to hit the agent with
+// a blank slate, so multi-step workflows ("bring up each lead one by one") and
+// follow-ups ("yes", "the next one") were impossible. The last few user/answer
+// text pairs (never tool blobs) are replayed as context on every call.
+const MEMORY_MAX = 12;
+let agentMemory = [];
+function _resetAgentMemory() {
+  agentMemory = [];
+}
+function remember(role, content) {
+  agentMemory.push({ role, content: String(content).slice(0, 400) });
+  if (agentMemory.length > MEMORY_MAX) agentMemory = agentMemory.slice(-MEMORY_MAX);
+}
+/** True when a short utterance reads as a follow-up to the ongoing agent thread. */
+function isFollowUp(text) {
+  const t = String(text || '').trim();
+  return t.length > 0 && t.length < 80;
+}
+
+// The Fable 5 path: a native Anthropic tool-use loop. The whole response
+// content (including thinking blocks) is echoed back each step, as the API
+// requires. Throws on failure so the caller can fall back to the Groq ladder.
+async function runAnthropicAgent(text, { client, system, tools, anthropicImpl, anthropicKey, maxSteps = 8 }) {
+  const messages = [...agentMemory.map((m) => ({ role: m.role, content: m.content })), { role: 'user', content: text }];
+  const aTools = toAnthropicTools(tools);
+  for (let step = 0; step < maxSteps; step++) {
+    const resp = await anthropicMessage({
+      system,
+      messages,
+      tools: aTools,
+      maxTokens: 8000,
+      effort: 'medium',
+      apiKey: anthropicKey,
+      fetchImpl: anthropicImpl,
+    });
+    if (resp.stop_reason === 'refusal') throw new Error('anthropic refusal');
+    const calls = toolUsesFrom(resp);
+    if (!calls.length) {
+      const answer = textFrom(resp) || 'Done, sir.';
+      remember('user', text);
+      remember('assistant', answer);
+      return answer;
+    }
+    messages.push({ role: 'assistant', content: resp.content }); // full blocks, unchanged
+    const results = [];
+    for (const call of calls) {
+      let result;
+      try {
+        result = await client.dispatch(call.name, call.input || {});
+      } catch (err) {
+        result = { error: err.message };
+      }
+      results.push({ type: 'tool_result', tool_use_id: call.id, content: JSON.stringify(result).slice(0, 4000) });
+    }
+    messages.push({ role: 'user', content: results });
+  }
+  const answer = 'That took more steps than expected, sir — could you narrow it down?';
+  remember('user', text);
+  remember('assistant', answer);
+  return answer;
+}
+
+async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT_MODEL, geminiKey = process.env.GEMINI_API_KEY, anthropicKey = process.env.ANTHROPIC_API_KEY, anthropicImpl = fetch, now = new Date().toISOString() }) {
+  if ((!keys || !keys.length) && !geminiKey && !anthropicKey) return 'I need an AI key to run that, sir.';
   keys = keys || [];
   if (!client || !client.isConfigured()) {
     return 'Your GoHighLevel account is not connected yet, sir. Add your GHL token to get me operating it.';
   }
 
-  const messages = [
-    {
-      role: 'system',
-      content:
+  const system =
         'You are JARVIS operating Dan\'s GoHighLevel CRM (Mint Concrete Polishing & ' +
         'Epoxy, Arizona — timezone America/Phoenix) through the provided tools. ' +
         'YOU ARE A COMMAND EXECUTOR, NOT AN AUTONOMOUS AGENT: do exactly what Dan asks in ' +
@@ -331,13 +396,34 @@ async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT
         '(dueDate today). Never send an outbound customer message without Dan\'s go-ahead ' +
         'unless he clearly said send. Messages sent TO customers are texts in Dan\'s style: ' +
         'blunt, confident, one short line, casual, no sign-off. ' +
-        `The current time is ${now}. When done, reply for the ear: one or two short spoken ` +
-        'sentences, no markdown or lists, and confirm what you did or found.',
-    },
-    { role: 'user', content: text },
-  ];
+        'CLARIFY BEFORE ACTING: if a request is ambiguous, incomplete, or could be read ' +
+        'more than one way, ask Dan ONE short clarifying question instead of guessing or ' +
+        'acting — reasoning and clarifying are encouraged; unrequested actions are not. ' +
+        'Multi-step interactive workflows are welcome (e.g. "bring up each new lead one by ' +
+        'one"): fetch the real data, present ONE item at a time, and ask Dan what to do ' +
+        'before moving to the next. You have the recent conversation for context, so short ' +
+        'follow-ups like "next one" or "skip him" continue the current workflow. ' +
+        `The current time is ${now}. Reply for the ear: one or two short spoken ` +
+        'sentences, no markdown or lists, and confirm what you did or found.';
 
   const tools = toolsFor(text);
+
+  // The Fable 5 brain gets first crack — real reasoning, native tool use, and
+  // conversation memory. Any failure falls straight through to the Groq ladder.
+  if (anthropicKey) {
+    try {
+      return await runAnthropicAgent(text, { client, system, tools, anthropicImpl, anthropicKey });
+    } catch {
+      /* fall through to Groq/Gemini */
+    }
+  }
+  if (!keys.length && !geminiKey) return 'The AI service is momentarily unavailable, sir. Give it ten seconds and ask me again.';
+
+  const messages = [
+    { role: 'system', content: system },
+    ...agentMemory.map((m) => ({ role: m.role, content: m.content })),
+    { role: 'user', content: text },
+  ];
   try {
     for (let step = 0; step < MAX_STEPS; step++) {
       const msg = cleanAssistantMsg(await callGroq(messages, { keys, model, groqImpl, tools, geminiKey }));
@@ -345,7 +431,10 @@ async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT
 
       const calls = msg.tool_calls || [];
       if (!calls.length) {
-        return (msg.content || 'Done, sir.').trim();
+        const answer = (msg.content || 'Done, sir.').trim();
+        remember('user', text);
+        remember('assistant', answer);
+        return answer;
       }
 
       for (const call of calls) {
@@ -370,4 +459,4 @@ async function runGhlAgent(text, { keys, client, groqImpl = fetch, model = AGENT
   }
 }
 
-module.exports = { isGhlQuery, runGhlAgent, AGENT_MODEL, _resetModelBench, toolsFor, parseTextCommand, runTextCommand, parseEmailCommand, runEmailCommand };
+module.exports = { isGhlQuery, runGhlAgent, AGENT_MODEL, _resetModelBench, _resetAgentMemory, isFollowUp, toolsFor, parseTextCommand, runTextCommand, parseEmailCommand, runEmailCommand };
