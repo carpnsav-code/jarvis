@@ -81,6 +81,55 @@ test('buildAuthorizeUrl includes all three required scopes and the redirect', ()
   for (const scope of SCOPES) assert.ok(parsed.searchParams.get('scope').includes(scope));
 });
 
+// --- cloud oauth: code exchange --------------------------------------------------
+
+test('exchangeCode posts the code + redirect and returns only the refresh token', async () => {
+  const { exchangeCode } = require('../spotify');
+  const calls = [];
+  const rt = await exchangeCode({
+    clientId: 'CID',
+    clientSecret: 'SEC',
+    code: 'THECODE',
+    redirectUri: 'https://jarvis.example.com/api/spotify/callback',
+    fetchImpl: async (url, opts) => {
+      calls.push({ url, opts });
+      return { ok: true, json: async () => ({ access_token: 'AT', refresh_token: 'RT-1' }) };
+    },
+  });
+  assert.equal(rt, 'RT-1');
+  assert.ok(calls[0].url.includes('/api/token'));
+  const body = new URLSearchParams(calls[0].opts.body);
+  assert.equal(body.get('grant_type'), 'authorization_code');
+  assert.equal(body.get('code'), 'THECODE');
+  assert.equal(body.get('redirect_uri'), 'https://jarvis.example.com/api/spotify/callback');
+  // client id/secret ride in the Basic auth header, never the body
+  assert.match(calls[0].opts.headers.Authorization, /^Basic /);
+});
+
+test('exchangeCode throws on a failed exchange or a missing refresh token', async () => {
+  const { exchangeCode } = require('../spotify');
+  await assert.rejects(
+    () => exchangeCode({ clientId: 'c', clientSecret: 's', code: 'x', redirectUri: 'r', fetchImpl: async () => ({ ok: false, status: 400 }) }),
+    /HTTP 400/
+  );
+  await assert.rejects(
+    () => exchangeCode({ clientId: 'c', clientSecret: 's', code: 'x', redirectUri: 'r', fetchImpl: async () => ({ ok: true, json: async () => ({ access_token: 'AT' }) }) }),
+    /no refresh token/
+  );
+});
+
+test('loadRefreshToken falls back to SPOTIFY_REFRESH_TOKEN when no file exists', () => {
+  const { loadRefreshToken } = require('../spotify');
+  const prev = process.env.SPOTIFY_REFRESH_TOKEN;
+  process.env.SPOTIFY_REFRESH_TOKEN = 'ENV-RT';
+  try {
+    assert.equal(loadRefreshToken('/nonexistent/path/spotify.json'), 'ENV-RT');
+  } finally {
+    if (prev === undefined) delete process.env.SPOTIFY_REFRESH_TOKEN;
+    else process.env.SPOTIFY_REFRESH_TOKEN = prev;
+  }
+});
+
 // --- client: token refresh ------------------------------------------------------
 
 function tokenFetch(record) {

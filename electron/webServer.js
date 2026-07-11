@@ -50,6 +50,9 @@ const {
   loadRefreshToken,
   saveRefreshToken,
   authorize: spotifyAuthorize,
+  buildAuthorizeUrl: spotifyAuthUrl,
+  exchangeCode: spotifyExchangeCode,
+  SCOPES: SPOTIFY_SCOPES,
 } = require('./spotify');
 
 const crypto = require('crypto');
@@ -99,6 +102,8 @@ try {
 }
 const memory = new MemoryStore();
 let lastSpotifyState = null;
+// One-shot CSRF state for the cloud Spotify OAuth round-trip.
+let spotifyOAuthState = null;
 // A document (estimate or invoice) being collected/confirmed across turns.
 let pendingQuote = null;
 let pendingInvoice = null;
@@ -525,6 +530,32 @@ const handler = async (req, res) => {
         const state = await spotify.getPlaybackState().catch(() => ({ playing: false }));
         return sendJson(res, state);
       }
+      // Spotify sends the user's browser back here after they approve access
+      // (cloud OAuth flow). Exchange the code, keep only the refresh token, and
+      // bounce back to the app.
+      if (url.pathname === '/api/spotify/callback') {
+        const back = (q) => {
+          res.writeHead(302, { Location: `/?spotify=${q}` });
+          res.end();
+        };
+        if (!spotifyOAuthState || url.searchParams.get('state') !== spotifyOAuthState) return back('error');
+        spotifyOAuthState = null;
+        if (url.searchParams.get('error') || !url.searchParams.get('code')) return back('denied');
+        try {
+          const rt = await spotifyExchangeCode({
+            clientId: process.env.SPOTIFY_CLIENT_ID,
+            clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
+            code: url.searchParams.get('code'),
+            redirectUri: `https://${req.headers.host}/api/spotify/callback`,
+          });
+          saveRefreshToken(rt);
+          spotify.refreshToken = rt;
+          return back('connected');
+        } catch (err) {
+          missionLog.error(`spotify oauth: ${err.message}`);
+          return back('error');
+        }
+      }
     }
     if (req.method === 'POST') {
       // Speech-to-text takes a binary audio body — handle before JSON parsing.
@@ -573,6 +604,17 @@ const handler = async (req, res) => {
       if (url.pathname === '/api/spotify/authorize') {
         if (!process.env.SPOTIFY_CLIENT_ID || !process.env.SPOTIFY_CLIENT_SECRET) {
           return sendJson(res, { ok: false, error: 'Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET first.' });
+        }
+        // Cloud: the server has no browser and 127.0.0.1 points at the user's
+        // machine, so instead send THE USER'S browser to Spotify and have it
+        // redirect back to this app's own /api/spotify/callback.
+        if (IN_CLOUD) {
+          spotifyOAuthState = crypto.randomBytes(12).toString('hex');
+          const redirectUri = `https://${req.headers.host}/api/spotify/callback`;
+          return sendJson(res, {
+            ok: false,
+            redirect: spotifyAuthUrl(process.env.SPOTIFY_CLIENT_ID, redirectUri, SPOTIFY_SCOPES, spotifyOAuthState),
+          });
         }
         try {
           const rt = await spotifyAuthorize({

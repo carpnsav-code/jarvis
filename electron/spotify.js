@@ -190,7 +190,9 @@ function loadRefreshToken(file = SPOTIFY_TOKEN_FILE) {
   } catch {
     /* ignore — treat as not connected */
   }
-  return null;
+  // Cloud hosts have ephemeral disks — a redeploy wipes the token file. Setting
+  // SPOTIFY_REFRESH_TOKEN in the host's env keeps the connection permanent.
+  return process.env.SPOTIFY_REFRESH_TOKEN || null;
 }
 
 function saveRefreshToken(refreshToken, file = SPOTIFY_TOKEN_FILE) {
@@ -202,6 +204,24 @@ function saveRefreshToken(refreshToken, file = SPOTIFY_TOKEN_FILE) {
 
 function basicAuth(clientId, clientSecret) {
   return 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+}
+
+/**
+ * Exchange an authorization code for a refresh token (cloud flow: the web
+ * server's own /api/spotify/callback catches the redirect, so there is no
+ * loopback server — this is just the token exchange step on its own).
+ * @returns {Promise<string>} the refresh token
+ */
+async function exchangeCode({ clientId, clientSecret, code, redirectUri, fetchImpl = fetch }) {
+  const res = await fetchImpl(`${AUTH_BASE}/api/token`, {
+    method: 'POST',
+    headers: { Authorization: basicAuth(clientId, clientSecret), 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirectUri }).toString(),
+  });
+  if (!res.ok) throw new Error(`token exchange failed: HTTP ${res.status}`);
+  const tokens = await res.json();
+  if (!tokens.refresh_token) throw new Error('no refresh token in response');
+  return tokens.refresh_token;
 }
 
 /**
@@ -448,6 +468,8 @@ module.exports = {
   saveRefreshToken,
   // oauth + client
   authorize,
+  exchangeCode,
+  SCOPES,
   SpotifyClient,
   runSpotifyCommand,
 };

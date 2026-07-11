@@ -87,9 +87,31 @@ window.jarvis.onSpotifyState(renderNowPlaying);
 document.getElementById('spotify-auth').addEventListener('click', async () => {
   appendLog('jarvis', 'Opening Spotify authorization…');
   const res = await window.jarvis.spotifyAuthorize();
+  if (res.redirect) {
+    // Cloud flow: this page goes to Spotify's consent screen, and Spotify
+    // sends it back to /api/spotify/callback → /?spotify=connected.
+    window.location.href = res.redirect;
+    return;
+  }
   if (res.ok) renderNowPlaying(await window.jarvis.spotifyState());
   else appendLog('jarvis', res.error || 'Spotify authorization failed.');
 });
+
+// Landing back from the cloud Spotify OAuth round-trip.
+{
+  const spotifyResult = new URLSearchParams(window.location.search).get('spotify');
+  if (spotifyResult) {
+    history.replaceState(null, '', window.location.pathname); // clean the URL
+    if (spotifyResult === 'connected') {
+      appendLog('jarvis', 'Spotify connected, sir. Try: "play some music".');
+      window.jarvis.spotifyState().then(renderNowPlaying).catch(() => {});
+    } else if (spotifyResult === 'denied') {
+      appendLog('jarvis', 'Spotify access was declined, sir.');
+    } else {
+      appendLog('jarvis', "Spotify connection didn't complete, sir — try Connect Spotify again.");
+    }
+  }
+}
 
 // --- Voice output ---------------------------------------------------------------
 const SILENT_WAV =
