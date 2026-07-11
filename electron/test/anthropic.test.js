@@ -38,6 +38,7 @@ test('anthropicMessage retries once without the fallbacks beta on a 400', async 
     system: 's',
     messages: [{ role: 'user', content: 'x' }],
     apiKey: 'AK',
+    model: 'claude-fable-5', // fallbacks (and the retry-without-them) are Fable-only
     fetchImpl: async (url, opts) => {
       bodies.push(JSON.parse(opts.body));
       if (bodies.length === 1) return { ok: false, status: 400, json: async () => ({}) };
@@ -47,6 +48,29 @@ test('anthropicMessage retries once without the fallbacks beta on a 400', async 
   assert.equal(textFrom(resp), 'ok');
   assert.ok(bodies[0].fallbacks, 'first attempt carries fallbacks');
   assert.equal(bodies[1].fallbacks, undefined, 'retry drops fallbacks');
+});
+
+test('default model is claude-opus-4-8, with no fallbacks/beta attached', async () => {
+  const prev = process.env.ANTHROPIC_MODEL;
+  delete process.env.ANTHROPIC_MODEL;
+  try {
+    const calls = [];
+    await anthropicMessage({
+      system: 's',
+      messages: [{ role: 'user', content: 'x' }],
+      apiKey: 'AK',
+      fetchImpl: async (url, opts) => {
+        calls.push(opts);
+        return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: 'ok' }] }) };
+      },
+    });
+    const body = JSON.parse(calls[0].body);
+    assert.equal(body.model, 'claude-opus-4-8');
+    assert.equal(body.fallbacks, undefined); // fallback-to-Opus only applies on Fable/Mythos
+    assert.equal(calls[0].headers['anthropic-beta'], undefined);
+  } finally {
+    if (prev !== undefined) process.env.ANTHROPIC_MODEL = prev;
+  }
 });
 
 test('toAnthropicTools converts the OpenAI function schema', () => {

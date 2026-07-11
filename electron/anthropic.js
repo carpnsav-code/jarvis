@@ -27,7 +27,7 @@ const API_URL = 'https://api.anthropic.com/v1/messages';
 const API_VERSION = '2023-06-01';
 const FALLBACK_BETA = 'server-side-fallback-2026-06-01';
 
-const DEFAULT_MODEL = () => process.env.ANTHROPIC_MODEL || 'claude-fable-5';
+const DEFAULT_MODEL = () => process.env.ANTHROPIC_MODEL || 'claude-opus-4-8';
 
 function hasAnthropic(env = process.env) {
   return Boolean(env.ANTHROPIC_API_KEY);
@@ -53,8 +53,12 @@ async function anthropicMessage({
     system,
     messages,
     output_config: { effort },
-    fallbacks: [{ model: 'claude-opus-4-8' }],
   };
+  // The server-side refusal fallback re-runs a classifier-declined request on
+  // Opus 4.8 — only meaningful when the requested model is Fable/Mythos tier.
+  if (/^claude-(fable|mythos)/.test(model)) {
+    body.fallbacks = [{ model: 'claude-opus-4-8' }];
+  }
   if (tools && tools.length) {
     body.tools = tools;
     body.tool_choice = { type: 'auto' };
@@ -72,8 +76,8 @@ async function anthropicMessage({
       body: JSON.stringify(payload),
     });
 
-  let res = await post(body, FALLBACK_BETA);
-  if (res.status === 400) {
+  let res = await post(body, body.fallbacks ? FALLBACK_BETA : null);
+  if (res.status === 400 && body.fallbacks) {
     // Most likely the fallbacks beta isn't enabled for this account — retry
     // plain so a policy hiccup can't take the whole brain down.
     const { fallbacks, ...plain } = body;
